@@ -1,1 +1,1 @@
-web: python -m uvicorn main_no_clip:app --host 0.0.0.0 --port $PORT
+web: python -m uvicorn main_minimal:app --host 0.0.0.0 --port $PORT
