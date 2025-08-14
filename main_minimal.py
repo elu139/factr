@@ -8,6 +8,8 @@ Designed to fit under 4GB Docker image limit
 # Core imports
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, Dict, List, Any
 import httpx
@@ -388,6 +390,12 @@ async def health_check():
         "mode": "pattern_based_detection",
         "note": "Ultra-lightweight version for free hosting"
     }
+
+# Serve the frontend
+@app.get("/")
+async def serve_frontend():
+    """Serve the frontend HTML"""
+    return FileResponse("frontend_app.html")
 
 @app.post("/analyze/instagram", response_model=MisinformationAnalysis)
 async def analyze_instagram_post(request: InstagramPostRequest):
