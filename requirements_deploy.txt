@@ -1,0 +1,26 @@
+# Deployment requirements for factr.ai (No-CLIP version)
+# Optimized for free hosting platforms
+
+# Core web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# HTTP client
+httpx==0.25.2
+
+# Data validation
+pydantic==2.5.0
+
+# ML and NLP (CPU-only for free hosting)
+torch==2.1.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+transformers==4.36.0
+numpy==1.24.3
+
+# Image processing
+Pillow==10.1.0
+
+# Text processing
+nltk==3.8.1
+
+# Utilities
+python-dateutil==2.8.2
