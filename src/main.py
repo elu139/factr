@@ -1,16 +1,17 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
 import httpx
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from dataclasses import dataclass
 import re
 import json
 from PIL import Image
+from PIL.ExifTags import TAGS
 import io
 import base64
 import torch
@@ -21,6 +22,10 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 import ssl
+import hashlib
+import requests
+from urllib.parse import quote_plus, urlencode
+import xml.etree.ElementTree as ET
 
 # Download NLTK data safely
 try:
@@ -47,7 +52,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="factr.ai - Multimodal Misinformation Detection",
     description="AI-powered system for detecting misinformation across text, image, and audio",
-    version="1.0.0"
+    version="Session 3 - Reverse Search + Metadata Analysis"
 )
 
 # Add CORS middleware for frontend integration
@@ -86,7 +91,697 @@ class InstagramPost(BaseModel):
     likes: Optional[int] = None
     comments_count: Optional[int] = None
 
-# Instagram scraper class - REAL implementation!
+# New classes for Session 3
+class ReverseImageSearchEngine:
+    """
+    Multi-engine reverse image search for detecting image reuse and misattribution
+    
+    ML Concept: This is crucial for misinformation detection because:
+    1. Old images are often reused for new fake events
+    2. Stock photos get misrepresented as real news
+    3. Images from different locations get misattributed
+    
+    We use multiple search engines for better coverage and cross-verification
+    """
+    
+    def __init__(self):
+        self.engines = {
+            "google": self._search_google_images,
+            "tineye": self._search_tineye,
+            "bing": self._search_bing_images
+        }
+        self.session = httpx.AsyncClient(timeout=30.0)
+        
+    async def search_image(self, image_url: str, engines: list = None) -> Dict[str, Any]:
+        """
+        Search for an image across multiple reverse search engines
+        
+        Args:
+            image_url: URL of the image to search
+            engines: List of engines to use (default: all)
+            
+        Returns:
+            Combined results from all engines with analysis
+        """
+        if engines is None:
+            engines = list(self.engines.keys())
+            
+        results = {}
+        
+        for engine in engines:
+            try:
+                logger.info(f"Searching {engine} for image matches...")
+                engine_results = await self.engines[engine](image_url)
+                results[engine] = engine_results
+                
+                # Small delay to be respectful to search engines
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error searching {engine}: {e}")
+                results[engine] = {"error": str(e), "matches": []}
+        
+        # Analyze combined results
+        analysis = await self._analyze_search_results(results, image_url)
+        
+        return {
+            "individual_results": results,
+            "analysis": analysis,
+            "search_timestamp": datetime.now()
+        }
+    
+    async def _search_google_images(self, image_url: str) -> Dict[str, Any]:
+        """
+        Search Google Images using their reverse search
+        
+        Note: This uses Google's public reverse search interface
+        """
+        try:
+            # Google reverse image search URL
+            search_url = f"https://www.google.com/searchbyimage?image_url={quote_plus(image_url)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = await self.session.get(search_url, headers=headers)
+            response.raise_for_status()
+            
+            # Parse results (simplified - in production you'd use more sophisticated parsing)
+            matches = self._parse_google_results(response.text)
+            
+            return {
+                "engine": "google",
+                "matches": matches,
+                "total_results": len(matches),
+                "search_url": search_url
+            }
+            
+        except Exception as e:
+            logger.error(f"Google search error: {e}")
+            return {"engine": "google", "matches": [], "error": str(e)}
+    
+    async def _search_tineye(self, image_url: str) -> Dict[str, Any]:
+        """
+        Search TinEye for exact image matches
+        
+        TinEye is excellent for finding exact copies and determining the oldest occurrence
+        """
+        try:
+            # TinEye reverse search (using their public interface)
+            search_url = f"https://tineye.com/search?url={quote_plus(image_url)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = await self.session.get(search_url, headers=headers)
+            response.raise_for_status()
+            
+            matches = self._parse_tineye_results(response.text)
+            
+            return {
+                "engine": "tineye",
+                "matches": matches,
+                "total_results": len(matches),
+                "search_url": search_url
+            }
+            
+        except Exception as e:
+            logger.error(f"TinEye search error: {e}")
+            return {"engine": "tineye", "matches": [], "error": str(e)}
+    
+    async def _search_bing_images(self, image_url: str) -> Dict[str, Any]:
+        """
+        Search Bing Visual Search for similar images
+        """
+        try:
+            # Bing reverse image search
+            search_url = f"https://www.bing.com/images/search?view=detailv2&iss=sbi&form=SBIHMP&sbisrc=UrlPaste&q=imgurl:{quote_plus(image_url)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = await self.session.get(search_url, headers=headers)
+            response.raise_for_status()
+            
+            matches = self._parse_bing_results(response.text)
+            
+            return {
+                "engine": "bing",
+                "matches": matches,
+                "total_results": len(matches),
+                "search_url": search_url
+            }
+            
+        except Exception as e:
+            logger.error(f"Bing search error: {e}")
+            return {"engine": "bing", "matches": [], "error": str(e)}
+    
+    def _parse_google_results(self, html: str) -> List[Dict[str, Any]]:
+        """Parse Google reverse search results"""
+        matches = []
+        
+        # Look for "Pages that include matching images" section
+        # This is a simplified parser - production would be more robust
+        page_patterns = re.findall(r'<h3[^>]*><a[^>]*href="([^"]*)"[^>]*>([^<]*)</a></h3>', html)
+        
+        for url, title in page_patterns[:10]:  # Limit to top 10 results
+            if url and title:
+                matches.append({
+                    "url": url,
+                    "title": title.strip(),
+                    "source": "google_pages",
+                    "confidence": 0.8  # Default confidence
+                })
+        
+        # Look for visually similar images
+        img_patterns = re.findall(r'<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"', html)
+        
+        for img_url, alt_text in img_patterns[:5]:
+            if 'googleusercontent' in img_url:  # Google's cached images
+                matches.append({
+                    "image_url": img_url,
+                    "alt_text": alt_text,
+                    "source": "google_images",
+                    "confidence": 0.7
+                })
+        
+        return matches
+    
+    def _parse_tineye_results(self, html: str) -> List[Dict[str, Any]]:
+        """Parse TinEye results - focuses on exact matches with dates"""
+        matches = []
+        
+        # TinEye shows exact matches with crawl dates
+        match_patterns = re.findall(
+            r'<div[^>]*class="[^"]*match[^"]*"[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>.*?<p[^>]*class="[^"]*crawl-date[^"]*"[^>]*>([^<]*)</p>',
+            html,
+            re.DOTALL
+        )
+        
+        for url, title, crawl_date in match_patterns:
+            matches.append({
+                "url": url.strip(),
+                "title": title.strip(),
+                "crawl_date": crawl_date.strip(),
+                "source": "tineye_exact",
+                "confidence": 0.95  # TinEye gives exact matches
+            })
+        
+        return matches
+    
+    def _parse_bing_results(self, html: str) -> List[Dict[str, Any]]:
+        """Parse Bing visual search results"""
+        matches = []
+        
+        # Bing shows pages containing the image and similar images
+        page_patterns = re.findall(r'<h2><a[^>]*href="([^"]*)"[^>]*>([^<]*)</a></h2>', html)
+        
+        for url, title in page_patterns[:8]:
+            if url and title:
+                matches.append({
+                    "url": url,
+                    "title": title.strip(),
+                    "source": "bing_pages",
+                    "confidence": 0.75
+                })
+        
+        return matches
+    
+    async def _analyze_search_results(self, results: Dict[str, Any], original_url: str) -> Dict[str, Any]:
+        """
+        Analyze combined reverse search results for misinformation indicators
+        
+        Key indicators:
+        1. Image age vs. claimed event date
+        2. Context mismatches
+        3. Geographic inconsistencies
+        4. Multiple unrelated uses
+        """
+        all_matches = []
+        
+        # Combine all matches from all engines
+        for engine, engine_results in results.items():
+            if "matches" in engine_results:
+                all_matches.extend(engine_results["matches"])
+        
+        if not all_matches:
+            return {
+                "total_matches": 0,
+                "age_analysis": "No matches found",
+                "context_analysis": "Cannot determine reuse",
+                "risk_indicators": [],
+                "oldest_known_use": None
+            }
+        
+        # Analyze for misinformation indicators
+        analysis = {
+            "total_matches": len(all_matches),
+            "age_analysis": await self._analyze_image_age(all_matches),
+            "context_analysis": await self._analyze_context_changes(all_matches),
+            "geographic_analysis": await self._analyze_geographic_consistency(all_matches),
+            "risk_indicators": await self._identify_risk_indicators(all_matches),
+            "oldest_known_use": await self._find_oldest_use(all_matches),
+            "confidence_score": await self._calculate_reverse_search_confidence(all_matches)
+        }
+        
+        return analysis
+    
+    async def _analyze_image_age(self, matches: List[Dict[str, Any]]) -> str:
+        """Analyze when the image was first seen online"""
+        dates = []
+        
+        for match in matches:
+            if "crawl_date" in match:
+                try:
+                    # Parse various date formats
+                    date_str = match["crawl_date"]
+                    # Add date parsing logic here
+                    dates.append(date_str)
+                except:
+                    continue
+        
+        if dates:
+            return f"Image has been online since at least {min(dates)}"
+        else:
+            return "Could not determine image age from search results"
+    
+    async def _analyze_context_changes(self, matches: List[Dict[str, Any]]) -> str:
+        """Analyze if image context has changed across different uses"""
+        contexts = []
+        
+        for match in matches:
+            title = match.get("title", "").lower()
+            contexts.append(title)
+        
+        # Look for conflicting contexts
+        news_contexts = [c for c in contexts if any(word in c for word in ["news", "breaking", "report"])]
+        location_contexts = [c for c in contexts if any(word in c for word in ["city", "country", "state"])]
+        
+        if len(set(news_contexts)) > 2:
+            return "Image used in multiple different news contexts - potential misattribution"
+        elif len(set(location_contexts)) > 2:
+            return "Image associated with multiple different locations"
+        else:
+            return "Context appears consistent across uses"
+    
+    async def _analyze_geographic_consistency(self, matches: List[Dict[str, Any]]) -> str:
+        """Check for geographic inconsistencies in image usage"""
+        locations = []
+        
+        for match in matches:
+            title = match.get("title", "").lower()
+            # Extract location names (simplified - production would use NER)
+            location_words = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', match.get("title", ""))
+            locations.extend(location_words)
+        
+        unique_locations = set(locations)
+        
+        if len(unique_locations) > 3:
+            return f"Image associated with multiple locations: {', '.join(list(unique_locations)[:3])}"
+        else:
+            return "Geographic usage appears consistent"
+    
+    async def _identify_risk_indicators(self, matches: List[Dict[str, Any]]) -> List[str]:
+        """Identify specific risk indicators from reverse search"""
+        indicators = []
+        
+        # Check for stock photo usage
+        stock_sources = ["shutterstock", "getty", "stock", "alamy", "dreamstime"]
+        if any(any(source in match.get("url", "").lower() for source in stock_sources) for match in matches):
+            indicators.append("Image appears to be from stock photo source")
+        
+        # Check for social media reuse
+        social_sources = ["facebook", "twitter", "instagram", "tiktok"]
+        social_matches = [m for m in matches if any(source in m.get("url", "").lower() for source in social_sources)]
+        
+        if len(social_matches) > 3:
+            indicators.append("Image widely shared across social media platforms")
+        
+        # Check for news site reuse
+        news_sources = ["cnn", "bbc", "reuters", "news", "times", "post"]
+        news_matches = [m for m in matches if any(source in m.get("url", "").lower() for source in news_sources)]
+        
+        if len(news_matches) > 2:
+            indicators.append("Image used by multiple news sources")
+        
+        return indicators
+    
+    async def _find_oldest_use(self, matches: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Find the oldest known use of the image"""
+        dated_matches = [m for m in matches if "crawl_date" in m]
+        
+        if dated_matches:
+            # Sort by date (simplified - production would parse dates properly)
+            oldest = min(dated_matches, key=lambda x: x.get("crawl_date", ""))
+            return oldest
+        
+        return None
+    
+    async def _calculate_reverse_search_confidence(self, matches: List[Dict[str, Any]]) -> float:
+        """Calculate confidence in reverse search findings"""
+        if not matches:
+            return 0.0
+        
+        # Higher confidence with more matches and higher individual confidence scores
+        avg_confidence = sum(match.get("confidence", 0.5) for match in matches) / len(matches)
+        match_bonus = min(len(matches) / 10.0, 0.3)  # Bonus for more matches, capped at 30%
+        
+        return min(avg_confidence + match_bonus, 1.0)
+
+class ImageMetadataAnalyzer:
+    """
+    Extracts and analyzes EXIF metadata from images for forensic analysis
+    
+    ML Concept: Image metadata contains crucial information:
+    1. GPS coordinates (location verification)
+    2. Camera settings (manipulation detection)
+    3. Creation timestamps (temporal verification)
+    4. Software used (editing detection)
+    
+    This helps detect when images are taken from different times/places than claimed
+    """
+    
+    def __init__(self):
+        self.supported_formats = ['JPEG', 'TIFF', 'PNG']
+        
+    async def analyze_image_metadata(self, image_url: str) -> Dict[str, Any]:
+        """
+        Extract and analyze comprehensive image metadata
+        
+        Args:
+            image_url: URL of the image to analyze
+            
+        Returns:
+            Comprehensive metadata analysis with misinformation indicators
+        """
+        try:
+            logger.info(f"Analyzing metadata for image: {image_url}")
+            
+            # Download image
+            image_data = await self._download_image_for_metadata(image_url)
+            
+            # Extract EXIF data
+            exif_data = await self._extract_exif_data(image_data)
+            
+            # Analyze for inconsistencies
+            analysis = await self._analyze_metadata_inconsistencies(exif_data)
+            
+            return {
+                "raw_exif": exif_data,
+                "analysis": analysis,
+                "metadata_timestamp": datetime.now()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing image metadata: {e}")
+            return {
+                "error": str(e),
+                "analysis": {"status": "metadata_extraction_failed"}
+            }
+    
+    async def _download_image_for_metadata(self, image_url: str) -> bytes:
+        """Download image preserving metadata"""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(image_url)
+            response.raise_for_status()
+            return response.content
+    
+    async def _extract_exif_data(self, image_data: bytes) -> Dict[str, Any]:
+        """Extract comprehensive EXIF metadata"""
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            
+            if not hasattr(image, '_getexif') or image._getexif() is None:
+                return {"status": "no_exif_data"}
+            
+            exif_dict = {}
+            exif = image._getexif()
+            
+            if exif is not None:
+                for tag_id, value in exif.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    exif_dict[tag] = value
+            
+            # Parse GPS data if available
+            gps_data = self._parse_gps_data(exif_dict)
+            
+            # Parse datetime data
+            datetime_data = self._parse_datetime_data(exif_dict)
+            
+            # Parse camera/technical data
+            technical_data = self._parse_technical_data(exif_dict)
+            
+            return {
+                "status": "extracted",
+                "gps_data": gps_data,
+                "datetime_data": datetime_data,
+                "technical_data": technical_data,
+                "raw_exif": exif_dict,
+                "image_format": image.format,
+                "image_size": image.size
+            }
+            
+        except Exception as e:
+            logger.error(f"EXIF extraction error: {e}")
+            return {"status": "extraction_failed", "error": str(e)}
+    
+    def _parse_gps_data(self, exif_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse GPS coordinates from EXIF data"""
+        gps_data = {}
+        
+        # GPS tags
+        gps_tags = {
+            'GPSLatitude': 'latitude',
+            'GPSLongitude': 'longitude',
+            'GPSAltitude': 'altitude',
+            'GPSTimeStamp': 'gps_time',
+            'GPSDateStamp': 'gps_date'
+        }
+        
+        for exif_tag, gps_key in gps_tags.items():
+            if exif_tag in exif_dict:
+                gps_data[gps_key] = exif_dict[exif_tag]
+        
+        # Convert DMS coordinates to decimal if present
+        if 'latitude' in gps_data and 'longitude' in gps_data:
+            try:
+                lat_decimal = self._convert_dms_to_decimal(gps_data['latitude'])
+                lon_decimal = self._convert_dms_to_decimal(gps_data['longitude'])
+                
+                gps_data['latitude_decimal'] = lat_decimal
+                gps_data['longitude_decimal'] = lon_decimal
+                gps_data['coordinates'] = f"{lat_decimal}, {lon_decimal}"
+            except:
+                pass
+        
+        return gps_data
+    
+    def _parse_datetime_data(self, exif_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse datetime information from EXIF"""
+        datetime_data = {}
+        
+        datetime_tags = {
+            'DateTime': 'datetime_original',
+            'DateTimeOriginal': 'datetime_taken',
+            'DateTimeDigitized': 'datetime_digitized'
+        }
+        
+        for exif_tag, datetime_key in datetime_tags.items():
+            if exif_tag in exif_dict:
+                try:
+                    # Parse datetime string
+                    dt_str = exif_dict[exif_tag]
+                    if isinstance(dt_str, str):
+                        dt = datetime.strptime(dt_str, '%Y:%m:%d %H:%M:%S')
+                        datetime_data[datetime_key] = dt
+                        datetime_data[f"{datetime_key}_string"] = dt_str
+                except:
+                    datetime_data[f"{datetime_key}_raw"] = exif_dict[exif_tag]
+        
+        return datetime_data
+    
+    def _parse_technical_data(self, exif_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse camera and technical data"""
+        technical_data = {}
+        
+        # Camera information
+        camera_tags = {
+            'Make': 'camera_make',
+            'Model': 'camera_model',
+            'Software': 'software_used',
+            'Orientation': 'orientation',
+            'XResolution': 'x_resolution',
+            'YResolution': 'y_resolution',
+            'ResolutionUnit': 'resolution_unit'
+        }
+        
+        for exif_tag, tech_key in camera_tags.items():
+            if exif_tag in exif_dict:
+                technical_data[tech_key] = exif_dict[exif_tag]
+        
+        # Photo settings
+        photo_tags = {
+            'ExposureTime': 'exposure_time',
+            'FNumber': 'f_number',
+            'ISO': 'iso_speed',
+            'Flash': 'flash_used',
+            'FocalLength': 'focal_length',
+            'WhiteBalance': 'white_balance'
+        }
+        
+        for exif_tag, photo_key in photo_tags.items():
+            if exif_tag in exif_dict:
+                technical_data[photo_key] = exif_dict[exif_tag]
+        
+        return technical_data
+    
+    def _convert_dms_to_decimal(self, dms_coords):
+        """Convert DMS (Degrees, Minutes, Seconds) to decimal coordinates"""
+        if isinstance(dms_coords, (list, tuple)) and len(dms_coords) >= 3:
+            degrees = float(dms_coords[0])
+            minutes = float(dms_coords[1])
+            seconds = float(dms_coords[2])
+            
+            decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+            return decimal
+        
+        return None
+    
+    async def _analyze_metadata_inconsistencies(self, exif_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze metadata for inconsistencies that indicate misinformation
+        
+        Key checks:
+        1. Temporal inconsistencies (photo date vs. claimed event date)
+        2. Geographic inconsistencies (GPS vs. claimed location) 
+        3. Technical inconsistencies (editing software detection)
+        4. Metadata stripping (suspicious lack of metadata)
+        """
+        analysis = {
+            "temporal_analysis": {},
+            "geographic_analysis": {},
+            "technical_analysis": {},
+            "authenticity_indicators": [],
+            "risk_score": 0.0
+        }
+        
+        if exif_data.get("status") != "extracted":
+            analysis["authenticity_indicators"].append("No metadata available - possibly stripped")
+            analysis["risk_score"] += 30.0
+            return analysis
+        
+        # Temporal analysis
+        analysis["temporal_analysis"] = await self._analyze_temporal_metadata(exif_data)
+        
+        # Geographic analysis  
+        analysis["geographic_analysis"] = await self._analyze_geographic_metadata(exif_data)
+        
+        # Technical analysis
+        analysis["technical_analysis"] = await self._analyze_technical_metadata(exif_data)
+        
+        # Calculate overall risk score
+        analysis["risk_score"] = await self._calculate_metadata_risk_score(analysis)
+        
+        return analysis
+    
+    async def _analyze_temporal_metadata(self, exif_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze temporal metadata for inconsistencies"""
+        temporal_analysis = {}
+        
+        datetime_data = exif_data.get("datetime_data", {})
+        
+        if not datetime_data:
+            temporal_analysis["status"] = "no_datetime_data"
+            return temporal_analysis
+        
+        # Check if we have creation time
+        creation_time = datetime_data.get("datetime_taken") or datetime_data.get("datetime_original")
+        
+        if creation_time:
+            temporal_analysis["photo_taken"] = creation_time.isoformat()
+            temporal_analysis["age_days"] = (datetime.now() - creation_time).days
+            
+            # Flag very old images being used
+            if temporal_analysis["age_days"] > 365:
+                temporal_analysis["warning"] = f"Image is {temporal_analysis['age_days']} days old"
+            
+            # Check for future dates (impossible)
+            if creation_time > datetime.now():
+                temporal_analysis["error"] = "Image has future creation date - metadata manipulation suspected"
+        
+        return temporal_analysis
+    
+    async def _analyze_geographic_metadata(self, exif_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze GPS metadata for location verification"""
+        geographic_analysis = {}
+        
+        gps_data = exif_data.get("gps_data", {})
+        
+        if not gps_data or "coordinates" not in gps_data:
+            geographic_analysis["status"] = "no_gps_data"
+            return geographic_analysis
+        
+        coordinates = gps_data["coordinates"]
+        geographic_analysis["gps_coordinates"] = coordinates
+        geographic_analysis["location_available"] = True
+        
+        # Here you could add reverse geocoding to get location names
+        # and compare with claimed locations in the post
+        
+        return geographic_analysis
+    
+    async def _analyze_technical_metadata(self, exif_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze technical metadata for manipulation indicators"""
+        technical_analysis = {}
+        
+        technical_data = exif_data.get("technical_data", {})
+        
+        # Check for editing software
+        software = technical_data.get("software_used", "")
+        if software:
+            editing_software = ["photoshop", "gimp", "lightroom", "snapseed", "facetune"]
+            if any(editor in software.lower() for editor in editing_software):
+                technical_analysis["editing_detected"] = software
+                technical_analysis["warning"] = "Image processed with editing software"
+        
+        # Check camera information
+        camera_make = technical_data.get("camera_make", "")
+        camera_model = technical_data.get("camera_model", "")
+        
+        if camera_make and camera_model:
+            technical_analysis["camera_info"] = f"{camera_make} {camera_model}"
+        elif not camera_make and not camera_model:
+            technical_analysis["warning"] = "No camera information - possibly processed or synthetic"
+        
+        return technical_analysis
+    
+    async def _calculate_metadata_risk_score(self, analysis: Dict[str, Any]) -> float:
+        """Calculate overall risk score based on metadata analysis"""
+        risk_score = 0.0
+        
+        # No metadata available
+        if "No metadata available" in analysis.get("authenticity_indicators", []):
+            risk_score += 30.0
+        
+        # Temporal risks
+        temporal = analysis.get("temporal_analysis", {})
+        if "error" in temporal:
+            risk_score += 40.0
+        elif "warning" in temporal:
+            risk_score += 20.0
+        
+        # Technical risks
+        technical = analysis.get("technical_analysis", {})
+        if "editing_detected" in technical:
+            risk_score += 15.0
+        if "No camera information" in technical.get("warning", ""):
+            risk_score += 10.0
+        
+        return min(risk_score, 100.0)
+
 class InstagramScraper:
     """
     Real Instagram post scraper using web scraping techniques
@@ -578,52 +1273,243 @@ class MultimodalAnalyzer:
             "text_analysis": {"error": "Processing failed"},
             "metadata_analysis": {"status": "fallback"}
         }
-# Enhanced Data preprocessing pipeline
+
+# Enhanced Data preprocessing pipeline with Session 3 capabilities
 class DataPreprocessor:
     """
     Handles preprocessing of multimodal data before ML analysis
-    Now with REAL ML integration!
+    Session 3 Enhancement: Now includes reverse search and metadata analysis!
     """
     
     def __init__(self, ml_analyzer: MultimodalAnalyzer):
         self.ml_analyzer = ml_analyzer
+        self.reverse_search = ReverseImageSearchEngine()
+        self.metadata_analyzer = ImageMetadataAnalyzer()
         self.setup_preprocessing()
     
     def setup_preprocessing(self):
         """Initialize preprocessing tools"""
-        logger.info("Enhanced preprocessing pipeline initialized with ML models")
+        logger.info("Enhanced preprocessing pipeline initialized with ML models + reverse search + metadata analysis")
     
-    async def preprocess_post(self, post: InstagramPost) -> Dict[str, Any]:
+    async def preprocess_post(self, post: InstagramPost, include_reverse_search: bool = True, include_metadata: bool = True) -> Dict[str, Any]:
         """
-        Preprocess Instagram post for ML analysis - now with real ML!
+        Preprocess Instagram post for comprehensive ML analysis
+        Session 3 Enhancement: Now includes reverse search and metadata analysis!
         
         Args:
             post: InstagramPost object
+            include_reverse_search: Whether to perform reverse image search
+            include_metadata: Whether to analyze image metadata
             
         Returns:
-            Dictionary with preprocessed data for each modality + ML analysis
+            Dictionary with comprehensive analysis across all modalities
         """
-        # Basic preprocessing
+        # Basic preprocessing (from Session 2)
         basic_preprocessing = {
             "text": await self._preprocess_text(post.caption),
             "image": await self._preprocess_image(post.image_url),
             "metadata": await self._extract_metadata(post)
         }
         
-        # Run ML analysis!
+        # Session 3 NEW: Reverse image search analysis
+        reverse_search_results = None
+        if include_reverse_search:
+            try:
+                logger.info("Running reverse image search analysis...")
+                reverse_search_results = await self.reverse_search.search_image(post.image_url)
+                logger.info(f"Found {reverse_search_results['analysis']['total_matches']} matches across search engines")
+            except Exception as e:
+                logger.error(f"Reverse search failed: {e}")
+                reverse_search_results = {"error": str(e)}
+        
+        # Session 3 NEW: Image metadata analysis
+        metadata_analysis = None
+        if include_metadata:
+            try:
+                logger.info("Analyzing image metadata...")
+                metadata_analysis = await self.metadata_analyzer.analyze_image_metadata(post.image_url)
+                logger.info("Metadata analysis complete")
+            except Exception as e:
+                logger.error(f"Metadata analysis failed: {e}")
+                metadata_analysis = {"error": str(e)}
+        
+        # Run CLIP-based ML analysis (from Session 2)
         ml_analysis = await self.ml_analyzer.analyze_cross_modal_consistency(
             post.image_url, 
             post.caption, 
             basic_preprocessing["metadata"]
         )
         
+        # Session 3 NEW: Enhanced analysis combining all sources
+        comprehensive_analysis = await self._generate_comprehensive_analysis(
+            ml_analysis,
+            reverse_search_results,
+            metadata_analysis,
+            basic_preprocessing,
+            post
+        )
+        
         # Combine everything
         preprocessed_data = {
             **basic_preprocessing,
-            "ml_analysis": ml_analysis
+            "ml_analysis": ml_analysis,
+            "reverse_search": reverse_search_results,
+            "metadata_analysis": metadata_analysis,
+            "comprehensive_analysis": comprehensive_analysis
         }
         
         return preprocessed_data
+    
+    async def _generate_comprehensive_analysis(
+        self,
+        ml_analysis: Dict[str, Any],
+        reverse_search_results: Optional[Dict[str, Any]],
+        metadata_analysis: Optional[Dict[str, Any]], 
+        basic_preprocessing: Dict[str, Any],
+        post: InstagramPost
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive analysis combining all detection methods
+        Session 3 NEW: Now we have 6 different detection methods!
+        """
+        
+        comprehensive_analysis = {
+            "detection_methods": {},
+            "combined_risk_score": 0.0,
+            "primary_concerns": [],
+            "evidence_summary": {},
+            "confidence_level": "Low"
+        }
+        
+        # Method 1: CLIP-based cross-modal consistency (from Session 2)
+        clip_score = 100 - ml_analysis.get("clip_analysis", {}).get("text_image_consistency", 50)
+        comprehensive_analysis["detection_methods"]["clip_consistency"] = {
+            "score": clip_score,
+            "description": f"Visual-textual consistency: {ml_analysis.get('clip_analysis', {}).get('text_image_consistency', 50):.1f}%"
+        }
+        
+        # Method 2: Manipulation detection (from Session 2)
+        manipulation_score = ml_analysis.get("clip_analysis", {}).get("manipulation_likelihood", 0)
+        comprehensive_analysis["detection_methods"]["manipulation_detection"] = {
+            "score": manipulation_score,
+            "description": f"Manipulation likelihood: {manipulation_score:.1f}%"
+        }
+        
+        # Method 3: NEW - Reverse search analysis
+        reverse_search_score = 0.0
+        if reverse_search_results and "analysis" in reverse_search_results:
+            analysis = reverse_search_results["analysis"]
+            
+            # Calculate risk based on reverse search findings
+            if analysis["total_matches"] > 10:
+                reverse_search_score += 20  # Widely circulated image
+            
+            if "stock photo" in str(analysis.get("risk_indicators", [])):
+                reverse_search_score += 30  # Stock photo misused as real news
+            
+            if "multiple news sources" in str(analysis.get("risk_indicators", [])):
+                reverse_search_score += 25  # Reused across news sites
+            
+            comprehensive_analysis["detection_methods"]["reverse_search"] = {
+                "score": reverse_search_score,
+                "description": f"Found {analysis['total_matches']} matches with {len(analysis.get('risk_indicators', []))} risk indicators"
+            }
+            
+            # Add specific concerns
+            if analysis.get("risk_indicators"):
+                comprehensive_analysis["primary_concerns"].extend(analysis["risk_indicators"])
+        
+        # Method 4: NEW - Metadata temporal analysis  
+        metadata_score = 0.0
+        if metadata_analysis and "analysis" in metadata_analysis:
+            meta_analysis = metadata_analysis["analysis"]
+            
+            # Check temporal inconsistencies
+            temporal = meta_analysis.get("temporal_analysis", {})
+            if "error" in temporal:
+                metadata_score += 40
+                comprehensive_analysis["primary_concerns"].append("Impossible image creation date detected")
+            elif temporal.get("age_days", 0) > 365:
+                metadata_score += 25
+                comprehensive_analysis["primary_concerns"].append(f"Image is {temporal['age_days']} days old")
+            
+            # Check for editing
+            technical = meta_analysis.get("technical_analysis", {})
+            if "editing_detected" in technical:
+                metadata_score += 15
+                comprehensive_analysis["primary_concerns"].append(f"Image edited with {technical['editing_detected']}")
+            
+            comprehensive_analysis["detection_methods"]["metadata_analysis"] = {
+                "score": metadata_score,
+                "description": f"Metadata risk score: {meta_analysis.get('risk_score', 0):.1f}%"
+            }
+        
+        # Method 5: Temporal claim analysis (enhanced from Session 2)
+        temporal_score = 0.0
+        text_analysis = ml_analysis.get("text_analysis", {})
+        temporal_indicators = text_analysis.get("temporal_indicators", [])
+        
+        if temporal_indicators:
+            post_year = post.timestamp.year
+            claimed_years = [int(x) for x in temporal_indicators if x.isdigit() and len(x) == 4]
+            
+            if claimed_years and abs(post_year - max(claimed_years)) > 1:
+                temporal_score = 35
+                comprehensive_analysis["primary_concerns"].append(
+                    f"Temporal mismatch: Post from {post_year} claims events from {claimed_years}"
+                )
+        
+        comprehensive_analysis["detection_methods"]["temporal_analysis"] = {
+            "score": temporal_score,
+            "description": f"Found {len(temporal_indicators)} temporal indicators"
+        }
+        
+        # Method 6: Engagement pattern analysis (NEW)
+        engagement_score = 0.0
+        engagement_ratio = basic_preprocessing["metadata"]["engagement"]["engagement_ratio"]
+        
+        if engagement_ratio > 100:  # Suspiciously high engagement
+            engagement_score = 20
+            comprehensive_analysis["primary_concerns"].append(
+                f"Unusual engagement pattern: {engagement_ratio:.1f} likes per comment"
+            )
+        
+        comprehensive_analysis["detection_methods"]["engagement_analysis"] = {
+            "score": engagement_score,
+            "description": f"Engagement ratio: {engagement_ratio:.1f} likes/comment"
+        }
+        
+        # Calculate combined risk score (weighted average of all methods)
+        method_scores = [
+            clip_score * 0.3,  # CLIP gets highest weight
+            manipulation_score * 0.25,
+            reverse_search_score * 0.2,
+            metadata_score * 0.15,
+            temporal_score * 0.07,
+            engagement_score * 0.03
+        ]
+        
+        comprehensive_analysis["combined_risk_score"] = sum(method_scores)
+        
+        # Determine confidence level
+        active_methods = sum(1 for score in [clip_score, reverse_search_score, metadata_score, temporal_score] if score > 10)
+        
+        if comprehensive_analysis["combined_risk_score"] > 70 and active_methods >= 3:
+            comprehensive_analysis["confidence_level"] = "High"
+        elif comprehensive_analysis["combined_risk_score"] > 40 and active_methods >= 2:
+            comprehensive_analysis["confidence_level"] = "Medium"
+        else:
+            comprehensive_analysis["confidence_level"] = "Low"
+        
+        # Generate evidence summary
+        comprehensive_analysis["evidence_summary"] = {
+            "strongest_indicators": [concern for concern in comprehensive_analysis["primary_concerns"][:3]],
+            "total_detection_methods": len([s for s in method_scores if s > 5]),
+            "cross_verification": active_methods >= 2,
+            "unanimous_concern": all(score > 15 for score in method_scores[:4])
+        }
+        
+        return comprehensive_analysis
     
     async def _preprocess_text(self, caption: str) -> Dict[str, Any]:
         """Enhanced text preprocessing with more analysis"""
@@ -645,242 +1531,4 @@ class DataPreprocessor:
             "cleaned_for_analysis": cleaned_for_analysis,
             "length": len(caption.split()),
             "hashtags": hashtags,
-            "mentions": mentions,
-            "urls": urls,
-            "has_emotional_language": any(word in caption.lower() 
-                                        for word in ["breaking", "shocking", "unbelievable", "must see"])
-        }
-    
-    async def _preprocess_image(self, image_url: str) -> Dict[str, Any]:
-        """Enhanced image preprocessing with metadata extraction"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(image_url)
-                response.raise_for_status()
-                
-                # Get basic image info
-                image = Image.open(io.BytesIO(response.content))
-                
-                return {
-                    "url": image_url,
-                    "size_bytes": len(response.content),
-                    "content_type": response.headers.get("content-type"),
-                    "dimensions": image.size,
-                    "mode": image.mode,
-                    "format": image.format,
-                    "status": "downloaded_successfully"
-                }
-            except Exception as e:
-                logger.error(f"Error downloading image: {e}")
-                return {
-                    "url": image_url,
-                    "error": str(e),
-                    "status": "download_failed"
-                }
-    
-    async def _extract_metadata(self, post: InstagramPost) -> Dict[str, Any]:
-        """Enhanced metadata extraction for consistency analysis"""
-        return {
-            "post_id": post.post_id,
-            "post_timestamp": post.timestamp,
-            "username": post.username,
-            "engagement": {
-                "likes": post.likes or 0,
-                "comments": post.comments_count or 0,
-                "engagement_ratio": (post.likes or 0) / max(1, post.comments_count or 1)
-            },
-            "posting_patterns": {
-                "hour_of_day": post.timestamp.hour,
-                "day_of_week": post.timestamp.weekday(),
-                "is_weekend": post.timestamp.weekday() >= 5
-            }
-        }
-        return {
-            "raw_text": caption,
-            "cleaned_text": cleaned_text,
-            "length": len(caption.split()),
-            "hashtags": [word for word in caption.split() if word.startswith("#")],
-            "mentions": [word for word in caption.split() if word.startswith("@")]
-        }
-    
-    async def _preprocess_image(self, image_url: str) -> Dict[str, Any]:
-        """Preprocess image for CLIP analysis"""
-        # Download and process image
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(image_url)
-                response.raise_for_status()
-                
-                # We'll add actual image processing with CLIP here in next session
-                return {
-                    "url": image_url,
-                    "size": len(response.content),
-                    "content_type": response.headers.get("content-type"),
-                    "status": "downloaded"
-                }
-            except Exception as e:
-                logger.error(f"Error downloading image: {e}")
-                return {"error": str(e)}
-    
-    async def _extract_metadata(self, post: InstagramPost) -> Dict[str, Any]:
-        """Extract metadata for consistency analysis"""
-        return {
-            "post_timestamp": post.timestamp,
-            "username": post.username,
-            "engagement": {
-                "likes": post.likes,
-                "comments": post.comments_count
-            }
-        }
-
-# Initialize components with ML integration
-instagram_scraper = InstagramScraper()
-ml_analyzer = MultimodalAnalyzer()
-data_preprocessor = DataPreprocessor(ml_analyzer)
-
-# API Endpoints
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {
-        "message": "factr.ai - Multimodal Misinformation Detection API",
-        "status": "active",
-        "version": "1.0.0"
-    }
-
-@app.post("/analyze/instagram", response_model=MisinformationAnalysis)
-async def analyze_instagram_post(
-    request: InstagramPostRequest,
-    background_tasks: BackgroundTasks
-):
-    """
-    Main endpoint for analyzing Instagram posts for misinformation
-    
-    NOW WITH REAL ML ANALYSIS! 🚀
-    
-    The process:
-    1. Scrape real Instagram post data
-    2. Preprocess multimodal data 
-    3. Run CLIP-based consistency analysis
-    4. Detect specific inconsistency types
-    5. Generate explanation and misinformation score
-    """
-    try:
-        logger.info(f"Analyzing Instagram post: {request.post_url}")
-        
-        # Step 1: Scrape real Instagram post data
-        post_data = await instagram_scraper.get_post_data(str(request.post_url))
-        logger.info(f"Successfully scraped post from @{post_data.username}: '{post_data.caption[:50]}...'")
-        
-        # Step 2: Preprocess the data (now includes ML analysis!)
-        preprocessed_data = await data_preprocessor.preprocess_post(post_data)
-        
-        # Step 3: Generate final analysis result
-        analysis_result = await _generate_final_analysis(
-            preprocessed_data, 
-            request.include_reverse_search,
-            request.include_metadata_analysis
-        )
-        
-        logger.info(f"Analysis complete: {analysis_result.misinformation_score}% misinformation likelihood")
-        return analysis_result
-        
-    except Exception as e:
-        logger.error(f"Error analyzing Instagram post: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-async def _generate_final_analysis(
-    preprocessed_data: Dict[str, Any],
-    include_reverse_search: bool,
-    include_metadata_analysis: bool
-) -> MisinformationAnalysis:
-    """
-    Generate final analysis result using real ML analysis
-    """
-    
-    # Extract ML analysis results
-    ml_analysis = preprocessed_data["ml_analysis"]
-    text_data = preprocessed_data["text"]
-    image_data = preprocessed_data["image"]
-    metadata = preprocessed_data["metadata"]
-    
-    # Use ML-generated scores and explanations
-    misinformation_score = ml_analysis["misinformation_score"]
-    confidence_level = ml_analysis["confidence_level"]
-    detected_inconsistencies = ml_analysis["inconsistencies"]
-    explanation = ml_analysis["explanation"]
-    
-    # Create detailed modality scores
-    modality_scores = {
-        "text_analysis": 100 - (len(text_data.get("hashtags", [])) * 5),  # Penalty for excessive hashtags
-        "image_analysis": ml_analysis["clip_analysis"]["text_image_consistency"],
-        "cross_modal_consistency": ml_analysis["clip_analysis"]["text_image_consistency"],
-        "manipulation_detection": 100 - ml_analysis["clip_analysis"]["manipulation_likelihood"],
-        "metadata_consistency": 85.0 if image_data["status"] == "downloaded_successfully" else 50.0
-    }
-    
-    # Add reverse search results if requested
-    if include_reverse_search:
-        # Placeholder for reverse search - we'll implement this in Session 3
-        detected_inconsistencies.append("Reverse image search: Analysis pending")
-    
-    # Enhanced metadata analysis if requested
-    if include_metadata_analysis:
-        engagement_ratio = metadata["engagement"]["engagement_ratio"]
-        if engagement_ratio > 100:  # Suspiciously high engagement
-            detected_inconsistencies.append(
-                f"Unusual engagement pattern: {engagement_ratio:.1f} likes per comment (typical: 10-50)"
-            )
-    
-    return MisinformationAnalysis(
-        misinformation_score=misinformation_score,
-        confidence_level=confidence_level,
-        detected_inconsistencies=detected_inconsistencies,
-        explanation=explanation,
-        modality_scores=modality_scores,
-        metadata_info={
-            "post_metadata": metadata,
-            "image_info": image_data,
-            "text_analysis": text_data,
-            "ml_analysis_summary": {
-                "clip_consistency": ml_analysis["clip_analysis"]["text_image_consistency"],
-                "manipulation_likelihood": ml_analysis["clip_analysis"]["manipulation_likelihood"],
-                "text_features": len(ml_analysis["text_analysis"].get("temporal_indicators", [])),
-            }
-        },
-        timestamp=datetime.now()
-    )
-
-@app.get("/health")
-async def health_check():
-    """Detailed health check for monitoring"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(),
-        "components": {
-            "instagram_scraper": "ready",
-            "data_preprocessor": "ready",
-            "ml_models": {
-                "clip_model": "loaded" if hasattr(ml_analyzer, 'clip_model') else "loading",
-                "sentiment_analyzer": "loaded" if hasattr(ml_analyzer, 'sentiment_analyzer') else "loading",
-                "device": ml_analyzer.device if hasattr(ml_analyzer, 'device') else "unknown"
-            }
-        },
-        "capabilities": {
-            "real_instagram_scraping": True,
-            "clip_analysis": True,
-            "cross_modal_consistency": True,
-            "misinformation_detection": True,
-            "natural_language_explanations": True
-        }
-    }
-
-# Error handlers
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    logger.error(f"HTTP error: {exc.detail}")
-    return {"error": exc.detail, "status_code": exc.status_code}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+            "mentions": mentions

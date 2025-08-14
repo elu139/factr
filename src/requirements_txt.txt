@@ -31,6 +31,12 @@ regex==2023.10.3
 beautifulsoup4==4.12.2
 lxml==4.9.3
 
+# Session 3 NEW: Reverse search and metadata analysis
+exifread==3.0.0  # Enhanced EXIF metadata extraction
+geopy==2.4.0     # Geographic location processing
+python-magic==0.4.27  # File type detection
+xmltodict==0.13.0     # XML parsing for search results
+
 # Cloud and deployment
 boto3==1.34.0  # For AWS integration
 python-dotenv==1.0.0
