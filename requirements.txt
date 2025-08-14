@@ -1,0 +1,11 @@
+# Main requirements file (Nixpacks looks for this specifically)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx==0.25.2
+pydantic==2.5.0
+torch==2.1.1
+transformers==4.36.0
+numpy==1.24.3
+Pillow==10.1.0
+nltk==3.8.1
+python-dateutil==2.8.2
