@@ -31,25 +31,37 @@ regex==2023.10.3
 beautifulsoup4==4.12.2
 lxml==4.9.3
 
-# Session 3 NEW: Reverse search and metadata analysis
+# Session 3: Reverse search and metadata analysis
 exifread==3.0.0  # Enhanced EXIF metadata extraction
 geopy==2.4.0     # Geographic location processing
 python-magic==0.4.27  # File type detection
 xmltodict==0.13.0     # XML parsing for search results
 
-# Cloud and deployment
-boto3==1.34.0  # For AWS integration
+# Session 4 NEW: BERT explanations and caching
+redis==5.0.1     # Redis client for intelligent caching
+torch-audio==2.1.1  # Audio processing (future expansion)
+sentence-transformers==2.2.2  # Enhanced sentence embeddings
+sacremoses==0.0.53  # Text tokenization for BERT
+datasets==2.15.0  # Dataset handling for model training
+
+# Session 4 NEW: Performance and monitoring
+psutil==5.9.6    # System monitoring
+prometheus-client==0.19.0  # Metrics collection
+structlog==23.2.0  # Enhanced structured logging
+
+# Cloud and deployment (Session 4 Enhanced)
+boto3==1.34.0  # AWS integration
 python-dotenv==1.0.0
+gunicorn==21.2.0  # Production WSGI server
+uvloop==0.19.0   # High-performance event loop
 
 # Development and testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
+pytest-redis==3.0.2  # Redis testing
 black==23.11.0
 flake8==6.1.0
 
-# Logging and monitoring
-structlog==23.2.0
-
 # Additional ML utilities
-sentence-transformers==2.2.2
 ftfy==6.1.1  # For text fixing
+Pillow-SIMD==10.0.1.post1  # Faster image processing
