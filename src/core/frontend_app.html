@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>factr.ai - Misinformation Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .main-card {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        input[type="url"] {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        
+        input[type="url"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .option-group {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+        }
+        
+        .option-group h4 {
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        
+        .checkbox-group input {
+            margin-right: 0.5rem;
+        }
+        
+        select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+        
+        .analyze-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            width: 100%;
+        }
+        
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        
+        .analyze-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .results {
+            display: none;
+            margin-top: 2rem;
+        }
+        
+        .risk-meter {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+        
+        .risk-score {
+            font-size: 3rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .risk-score.low { color: #28a745; }
+        .risk-score.medium { color: #ffc107; }
+        .risk-score.high { color: #dc3545; }
+        
+        .risk-label {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .explanation {
+            background: #e9ecef;
+            padding: 1rem;
+            border-radius: 8px;
+            font-style: italic;
+        }
+        
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .detail-card {
+            background: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+        }
+        
+        .detail-card h4 {
+            margin-bottom: 1rem;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+        
+        .detection-method {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .detection-method:last-child {
+            border-bottom: none;
+        }
+        
+        .method-score {
+            font-weight: bold;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.9rem;
+        }
+        
+        .score-low { background: #28a745; }
+        .score-medium { background: #ffc107; }
+        .score-high { background: #dc3545; }
+        
+        .inconsistencies {
+            list-style: none;
+        }
+        
+        .inconsistencies li {
+            padding: 0.5rem 0;
+            border-left: 3px solid #dc3545;
+            padding-left: 1rem;
+            margin-bottom: 0.5rem;
+            background: #f8f9fa;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            color: white;
+            opacity: 0.8;
+        }
+        
+        .api-info {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 1rem;
+            margin-top: 1rem;
+            color: white;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .main-card {
+                padding: 1rem;
+            }
+            
+            .options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 factr.ai</h1>
+            <p>Advanced Multimodal Misinformation Detection</p>
+            <div class="api-info">
+                <p><strong>Powered by:</strong> 6 Detection Methods • BERT Explanations • Real-time Analysis</p>
+            </div>
+        </div>
+
+        <div class="main-card">
+            <form id="analysisForm">
+                <div class="form-group">
+                    <label for="postUrl">Instagram Post URL</label>
+                    <input 
+                        type="url" 
+                        id="postUrl" 
+                        name="postUrl" 
+                        placeholder="https://www.instagram.com/p/ABC123/" 
+                        required
+                    >
+                </div>
+
+                <div class="options">
+                    <div class="option-group">
+                        <h4>Detection Methods</h4>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="reverseSearch" checked>
+                            <label for="reverseSearch">Reverse Image Search</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="metadataAnalysis" checked>
+                            <label for="metadataAnalysis">Metadata Analysis</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="cacheResults" checked>
+                            <label for="cacheResults">Use Caching</label>
+                        </div>
+                    </div>
+
+                    <div class="option-group">
+                        <h4>Explanation Settings</h4>
+                        <label for="audience">Target Audience:</label>
+                        <select id="audience">
+                            <option value="general_public">General Public</option>
+                            <option value="journalists">Journalists</option>
+                            <option value="researchers">Researchers</option>
+                            <option value="content_moderators">Content Moderators</option>
+                        </select>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="includeEvidence" checked>
+                            <label for="includeEvidence">Include Evidence</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="includeRecommendations" checked>
+                            <label for="includeRecommendations">Include Recommendations</label>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="analyze-btn" id="analyzeBtn">
+                    🔍 Analyze for Misinformation
+                </button>
+            </form>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Analyzing content across 6 detection methods...</p>
+                <p><small>This may take 15-30 seconds for new content, 3-8 seconds for cached content</small></p>
+            </div>
+
+            <div class="error" id="error">
+                <h4>❌ Analysis Failed</h4>
+                <p id="errorMessage"></p>
+            </div>
+
+            <div class="results" id="results">
+                <div class="risk-meter">
+                    <div class="risk-score" id="riskScore">0%</div>
+                    <div class="risk-label" id="riskLabel">Risk Level</div>
+                    <div class="explanation" id="explanation"></div>
+                </div>
+
+                <div class="details-grid">
+                    <div class="detail-card">
+                        <h4>🔍 Detection Methods</h4>
+                        <div id="detectionMethods"></div>
+                    </div>
+
+                    <div class="detail-card">
+                        <h4>⚠️ Detected Issues</h4>
+                        <ul class="inconsistencies" id="inconsistencies"></ul>
+                    </div>
+
+                    <div class="detail-card">
+                        <h4>📊 Performance Metrics</h4>
+                        <div id="performanceMetrics"></div>
+                    </div>
+
+                    <div class="detail-card">
+                        <h4>🧠 BERT Explanation</h4>
+                        <div id="bertExplanation"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>&copy; 2025 factr.ai - Advanced Misinformation Detection</p>
+            <p>Powered by CLIP, BERT, and 6 independent verification methods</p>
+        </div>
+    </div>
+
+    <script>
+        // Configuration - Update this with your API endpoint
+        const API_BASE_URL = 'https://factr-production.up.railway.app'; // Live production URL
+        
+        document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const postUrl = document.getElementById('postUrl').value;
+            const reverseSearch = document.getElementById('reverseSearch').checked;
+            const metadataAnalysis = document.getElementById('metadataAnalysis').checked;
+            const cacheResults = document.getElementById('cacheResults').checked;
+            const audience = document.getElementById('audience').value;
+            const includeEvidence = document.getElementById('includeEvidence').checked;
+            const includeRecommendations = document.getElementById('includeRecommendations').checked;
+            
+            // Show loading state
+            showLoading();
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/analyze/instagram`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        post_url: postUrl,
+                        include_reverse_search: reverseSearch,
+                        include_metadata_analysis: metadataAnalysis,
+                        cache_results: cacheResults,
+                        explanation_config: {
+                            audience: audience,
+                            include_evidence: includeEvidence,
+                            include_recommendations: includeRecommendations,
+                            language: "en"
+                        }
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading();
+            }
+        });
+        
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('analyzeBtn').disabled = true;
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('analyzeBtn').disabled = false;
+        }
+        
+        function showError(message) {
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('results').style.display = 'none';
+        }
+        
+        function displayResults(data) {
+            document.getElementById('results').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            
+            // Risk score and level
+            const riskScore = Math.round(data.misinformation_score);
+            const riskScoreEl = document.getElementById('riskScore');
+            const riskLabelEl = document.getElementById('riskLabel');
+            
+            riskScoreEl.textContent = `${riskScore}%`;
+            riskLabelEl.textContent = `${data.confidence_level} Confidence`;
+            
+            // Color coding
+            riskScoreEl.className = 'risk-score';
+            if (riskScore < 30) {
+                riskScoreEl.classList.add('low');
+            } else if (riskScore < 70) {
+                riskScoreEl.classList.add('medium');
+            } else {
+                riskScoreEl.classList.add('high');
+            }
+            
+            // Main explanation
+            document.getElementById('explanation').textContent = data.explanation;
+            
+            // Detection methods
+            const methodsContainer = document.getElementById('detectionMethods');
+            methodsContainer.innerHTML = '';
+            
+            Object.entries(data.modality_scores).forEach(([method, score]) => {
+                if (method.includes('_')) {
+                    const methodDiv = document.createElement('div');
+                    methodDiv.className = 'detection-method';
+                    
+                    const methodName = method.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const scoreRounded = Math.round(score);
+                    
+                    let scoreClass = 'score-low';
+                    if (scoreRounded > 30) scoreClass = 'score-medium';
+                    if (scoreRounded > 70) scoreClass = 'score-high';
+                    
+                    methodDiv.innerHTML = `
+                        <span>${methodName}</span>
+                        <span class="method-score ${scoreClass}">${scoreRounded}%</span>
+                    `;
+                    methodsContainer.appendChild(methodDiv);
+                }
+            });
+            
+            // Inconsistencies
+            const inconsistenciesContainer = document.getElementById('inconsistencies');
+            inconsistenciesContainer.innerHTML = '';
+            
+            data.detected_inconsistencies.forEach(issue => {
+                const li = document.createElement('li');
+                li.textContent = issue;
+                inconsistenciesContainer.appendChild(li);
+            });
+            
+            // Performance metrics
+            const performanceContainer = document.getElementById('performanceMetrics');
+            performanceContainer.innerHTML = `
+                <div class="detection-method">
+                    <span>Processing Time</span>
+                    <span>${data.processing_time || 'N/A'}s</span>
+                </div>
+                <div class="detection-method">
+                    <span>Cache Hit</span>
+                    <span>${data.cache_hit ? '✅ Yes' : '❌ No'}</span>
+                </div>
+                <div class="detection-method">
+                    <span>Confidence Level</span>
+                    <span>${data.confidence_level}</span>
+                </div>
+            `;
+            
+            // BERT explanation
+            const bertContainer = document.getElementById('bertExplanation');
+            if (data.detailed_explanation && data.detailed_explanation.explanation) {
+                const bertExpl = data.detailed_explanation.explanation;
+                bertContainer.innerHTML = `
+                    <p><strong>Assessment:</strong> ${bertExpl.main_assessment || 'Not available'}</p>
+                    <p style="margin-top: 1rem;"><strong>Natural Language Summary:</strong></p>
+                    <p style="font-style: italic;">${bertExpl.natural_language_summary || 'Not available'}</p>
+                `;
+            } else {
+                bertContainer.innerHTML = '<p>BERT explanation not available for this analysis.</p>';
+            }
+        }
+        
+        // Example URLs for testing
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlInput = document.getElementById('postUrl');
+            urlInput.placeholder = 'https://www.instagram.com/p/ABC123/ (or try any Instagram post URL)';
+        });
+    </script>
+</body>
+</html>
