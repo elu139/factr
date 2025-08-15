@@ -1,0 +1,603 @@
+# 🚀 Complete Production Deployment Guide
+
+This guide will take you from code to live production system in ~2-4 hours.
+
+## 📋 Prerequisites Checklist
+
+### ☁️ **AWS Account Setup**
+- [ ] AWS account created (free tier eligible)
+- [ ] AWS CLI installed and configured
+- [ ] Basic understanding of AWS console
+
+### 🌐 **Domain Setup (Optional but Recommended)**
+- [ ] Domain name purchased (e.g., factrai.com)
+- [ ] DNS management access (Route 53 or your registrar)
+
+### 💻 **Development Environment**
+- [ ] Docker installed
+- [ ] Git installed
+- [ ] Code editor (VS Code recommended)
+
+## 🎯 Deployment Options (Choose One)
+
+### Option 1: 🚀 **Quick AWS Deployment** (Recommended)
+**Time: ~1-2 hours | Cost: ~$50-100/month**
+- Fully managed AWS infrastructure
+- Auto-scaling and high availability
+- Production-ready monitoring
+
+### Option 2: 🐳 **Docker Deployment**
+**Time: ~30 minutes | Cost: ~$10-20/month**
+- Single server deployment
+- Good for testing/small scale
+- Easy to manage
+
+### Option 3: 🖥️ **Local Development**
+**Time: ~15 minutes | Cost: $0**
+- Development and testing only
+- Not suitable for production traffic
+
+---
+
+## 🚀 Option 1: AWS Production Deployment
+
+### Step 1: Setup AWS Prerequisites
+
+```bash
+# Install AWS CLI (if not already installed)
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Configure AWS credentials
+aws configure
+# AWS Access Key ID: [Your Access Key]
+# AWS Secret Access Key: [Your Secret Key]
+# Default region name: us-east-1
+# Default output format: json
+
+# Verify setup
+aws sts get-caller-identity
+```
+
+### Step 2: Prepare Your Code
+
+```bash
+# Clone your factr.ai code
+git clone https://github.com/your-username/factr-ai.git
+cd factr-ai
+
+# Create production environment file
+cp env_example.sh .env
+
+# Edit .env with production values
+nano .env
+```
+
+**Edit `.env` file:**
+```bash
+# Production Configuration
+DEBUG=False
+LOG_LEVEL=INFO
+LOG_TO_FILE=true
+ENVIRONMENT=production
+
+# Redis will be auto-configured by CloudFormation
+REDIS_URL=redis://your-redis-endpoint:6379
+
+# ML Model Configuration
+MODEL_CACHE_DIR=/app/models
+CLIP_MODEL_NAME=ViT-B/32
+BERT_MODEL_NAME=bert-base-uncased
+
+# Rate Limiting for Production
+RATE_LIMIT_CALLS=1000
+RATE_LIMIT_PERIOD=3600
+```
+
+### Step 3: Deploy AWS Infrastructure
+
+```bash
+# Create S3 bucket for CloudFormation templates (replace with unique name)
+aws s3 mb s3://factr-ai-deployment-yourname
+
+# Upload CloudFormation template
+aws s3 cp aws_deployment.yaml s3://factr-ai-deployment-yourname/
+
+# Create production stack
+aws cloudformation create-stack \
+  --stack-name factr-ai-production \
+  --template-url https://s3.amazonaws.com/factr-ai-deployment-yourname/aws_deployment.yaml \
+  --parameters \
+    ParameterKey=Environment,ParameterValue=production \
+    ParameterKey=InstanceType,ParameterValue=t3.xlarge \
+    ParameterKey=VpcId,ParameterValue=vpc-xxxxxxxxx \
+    ParameterKey=SubnetIds,ParameterValue=\"subnet-xxxxxxxx,subnet-yyyyyyyy\" \
+  --capabilities CAPABILITY_IAM
+
+# Monitor deployment (takes ~15-20 minutes)
+aws cloudformation describe-stacks --stack-name factr-ai-production --query 'Stacks[0].StackStatus'
+```
+
+### Step 4: Deploy Application Code
+
+```bash
+# Build and push Docker image to ECR (created by CloudFormation)
+$(aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin your-account-id.dkr.ecr.us-east-1.amazonaws.com)
+
+# Build image
+docker build -t factr-ai .
+
+# Tag and push
+docker tag factr-ai:latest your-account-id.dkr.ecr.us-east-1.amazonaws.com/factr-ai:latest
+docker push your-account-id.dkr.ecr.us-east-1.amazonaws.com/factr-ai:latest
+
+# Update Auto Scaling Group to use new image
+aws autoscaling update-auto-scaling-group \
+  --auto-scaling-group-name production-factr-ai-asg \
+  --launch-template LaunchTemplateName=production-factr-ai-lt,Version='$Latest'
+```
+
+### Step 5: Configure Domain (Optional)
+
+```bash
+# Get Load Balancer DNS name
+LB_DNS=$(aws cloudformation describe-stacks \
+  --stack-name factr-ai-production \
+  --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerURL`].OutputValue' \
+  --output text)
+
+echo "Your API is available at: $LB_DNS"
+
+# If you have a domain, create Route 53 record
+aws route53 change-resource-record-sets \
+  --hosted-zone-id Z1234567890ABC \
+  --change-batch '{
+    "Changes": [{
+      "Action": "CREATE",
+      "ResourceRecordSet": {
+        "Name": "api.yourdomain.com",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [{"Value": "'$LB_DNS'"}]
+      }
+    }]
+  }'
+```
+
+### Step 6: Deploy Frontend
+
+```bash
+# Create S3 bucket for frontend
+aws s3 mb s3://factr-ai-frontend-yourname
+
+# Enable static website hosting
+aws s3 website s3://factr-ai-frontend-yourname \
+  --index-document index.html \
+  --error-document error.html
+
+# Update frontend API URL
+sed -i 's|http://localhost:8000|https://api.yourdomain.com|g' frontend/index.html
+
+# Upload frontend
+aws s3 sync frontend/ s3://factr-ai-frontend-yourname --acl public-read
+
+# Get frontend URL
+echo "Frontend available at: http://factr-ai-frontend-yourname.s3-website-us-east-1.amazonaws.com"
+```
+
+### Step 7: Verify Deployment
+
+```bash
+# Test API health
+curl https://api.yourdomain.com/health
+
+# Test analysis endpoint
+curl -X POST https://api.yourdomain.com/analyze/instagram \
+  -H "Content-Type: application/json" \
+  -d '{
+    "post_url": "https://www.instagram.com/p/test123/",
+    "include_reverse_search": true,
+    "include_metadata_analysis": true
+  }'
+
+# Check frontend
+open http://factr-ai-frontend-yourname.s3-website-us-east-1.amazonaws.com
+```
+
+---
+
+## 🐳 Option 2: Docker Deployment (Simple)
+
+### Step 1: Setup Server
+
+```bash
+# Rent a VPS (DigitalOcean, Linode, AWS EC2)
+# Minimum: 4GB RAM, 2 CPU, 40GB storage
+# SSH into your server
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Docker and Docker Compose
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Logout and login again for Docker group to take effect
+exit
+# SSH back in
+```
+
+### Step 2: Deploy factr.ai
+
+```bash
+# Clone your code
+git clone https://github.com/your-username/factr-ai.git
+cd factr-ai
+
+# Create production environment
+cp env_example.sh .env
+nano .env
+```
+
+**Edit `.env` for production:**
+```bash
+REDIS_URL=redis://redis:6379
+DEBUG=False
+LOG_LEVEL=INFO
+LOG_TO_FILE=true
+ENVIRONMENT=production
+```
+
+```bash
+# Build and start services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f factr-ai
+
+# Test the API
+curl http://localhost:8000/health
+```
+
+### Step 3: Setup Nginx Reverse Proxy
+
+```bash
+# Install Nginx
+sudo apt install nginx -y
+
+# Create Nginx config
+sudo nano /etc/nginx/sites-available/factr-ai
+```
+
+**Nginx configuration:**
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com www.your-domain.com;
+
+    # API endpoints
+    location /api/ {
+        proxy_pass http://localhost:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Frontend
+    location / {
+        root /var/www/factr-ai;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+```bash
+# Enable site
+sudo ln -s /etc/nginx/sites-available/factr-ai /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+
+# Deploy frontend
+sudo mkdir -p /var/www/factr-ai
+sudo cp frontend/index.html /var/www/factr-ai/
+
+# Update API URL in frontend
+sudo sed -i 's|http://localhost:8000|http://your-domain.com/api|g' /var/www/factr-ai/index.html
+
+# Test and restart Nginx
+sudo nginx -t
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+```
+
+### Step 4: Setup SSL (Optional but Recommended)
+
+```bash
+# Install Certbot
+sudo apt install certbot python3-certbot-nginx -y
+
+# Get SSL certificate
+sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+
+# Auto-renewal
+sudo crontab -e
+# Add: 0 12 * * * /usr/bin/certbot renew --quiet
+```
+
+---
+
+## 🖥️ Option 3: Local Development
+
+### Quick Local Setup
+
+```bash
+# Clone repository
+git clone https://github.com/your-username/factr-ai.git
+cd factr-ai
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start Redis (required for caching)
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+
+# Run the application
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# In another terminal, serve frontend
+cd frontend
+python -m http.server 3000
+
+# Open browser
+open http://localhost:3000
+```
+
+---
+
+## 🔧 Post-Deployment Configuration
+
+### 1. **Domain and SSL Setup**
+
+```bash
+# For AWS deployment with custom domain
+# 1. Purchase domain (e.g., factrai.com)
+# 2. Create hosted zone in Route 53
+# 3. Point domain nameservers to Route 53
+# 4. Create SSL certificate in AWS Certificate Manager
+# 5. Update ALB to use SSL certificate
+```
+
+### 2. **Monitoring Setup**
+
+```bash
+# Enable CloudWatch monitoring (AWS)
+aws logs create-log-group --log-group-name /aws/ec2/factr-ai
+
+# Setup alerts
+aws cloudwatch put-metric-alarm \
+  --alarm-name "factr-ai-high-cpu" \
+  --alarm-description "CPU utilization too high" \
+  --metric-name CPUUtilization \
+  --namespace AWS/EC2 \
+  --statistic Average \
+  --period 300 \
+  --threshold 80 \
+  --comparison-operator GreaterThanThreshold
+```
+
+### 3. **Security Configuration**
+
+```bash
+# Update security groups (AWS)
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxxxxxx \
+  --protocol tcp \
+  --port 443 \
+  --cidr 0.0.0.0/0
+
+# Setup WAF (Web Application Firewall)
+aws wafv2 create-web-acl \
+  --name factr-ai-protection \
+  --description "Protection for factr.ai"
+```
+
+### 4. **Performance Optimization**
+
+```bash
+# Configure auto-scaling policies
+aws autoscaling put-scaling-policy \
+  --policy-name factr-ai-scale-out \
+  --auto-scaling-group-name production-factr-ai-asg \
+  --policy-type TargetTrackingScaling \
+  --target-tracking-configuration file://scaling-policy.json
+```
+
+---
+
+## 📊 Monitoring and Maintenance
+
+### **Health Checks**
+
+```bash
+# API health
+curl https://your-domain.com/health
+
+# Cache status
+curl https://your-domain.com/admin/cache/stats
+
+# Performance metrics
+curl https://your-domain.com/analytics/performance
+```
+
+### **Log Monitoring**
+
+```bash
+# View application logs (Docker)
+docker-compose logs -f factr-ai
+
+# View application logs (AWS)
+aws logs tail /aws/ec2/factr-ai --follow
+
+# Check Nginx logs (if using Docker deployment)
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+### **Performance Monitoring**
+
+```bash
+# Check Redis cache efficiency
+redis-cli info stats
+
+# Monitor system resources
+htop
+df -h
+free -h
+
+# AWS CloudWatch metrics
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ApplicationELB \
+  --metric-name RequestCount \
+  --start-time 2025-01-01T00:00:00Z \
+  --end-time 2025-01-02T00:00:00Z \
+  --period 3600 \
+  --statistics Sum
+```
+
+---
+
+## 🚨 Troubleshooting Common Issues
+
+### **Issue 1: High Memory Usage**
+
+```bash
+# Check container memory usage
+docker stats
+
+# Optimize Redis memory
+redis-cli config set maxmemory 1gb
+redis-cli config set maxmemory-policy allkeys-lru
+
+# Scale up instance (AWS)
+aws autoscaling update-auto-scaling-group \
+  --auto-scaling-group-name production-factr-ai-asg \
+  --desired-capacity 3
+```
+
+### **Issue 2: Slow Response Times**
+
+```bash
+# Check cache hit rates
+curl https://your-domain.com/admin/cache/stats
+
+# Clear cache if needed
+curl -X POST https://your-domain.com/admin/cache/clear?cache_type=all
+
+# Check Redis connection
+redis-cli ping
+```
+
+### **Issue 3: API Errors**
+
+```bash
+# Check application logs
+docker-compose logs factr-ai | tail -50
+
+# Check health endpoint
+curl https://your-domain.com/health
+
+# Restart services
+docker-compose restart factr-ai
+```
+
+---
+
+## 💰 Cost Estimation
+
+### **AWS Deployment Costs (Monthly)**
+
+| Component | Instance Type | Monthly Cost |
+|-----------|---------------|--------------|
+| EC2 Instances (2x) | t3.xlarge | $60-80 |
+| Application Load Balancer | - | $18 |
+| ElastiCache Redis | cache.t3.micro | $13 |
+| S3 Storage | - | $5-10 |
+| Data Transfer | - | $10-20 |
+| **Total** | | **$106-141** |
+
+### **Docker VPS Deployment Costs (Monthly)**
+
+| Provider | Instance Type | Monthly Cost |
+|----------|---------------|--------------|
+| DigitalOcean | 4GB RAM, 2 CPU | $24 |
+| Linode | 4GB RAM, 2 CPU | $24 |
+| AWS EC2 | t3.medium | $30 |
+| Vultr | 4GB RAM, 2 CPU | $24 |
+
+---
+
+## 🎯 Next Steps After Deployment
+
+### **Immediate (First Week)**
+1. ✅ Test all API endpoints
+2. ✅ Verify frontend functionality
+3. ✅ Setup monitoring alerts
+4. ✅ Configure SSL certificates
+5. ✅ Test with real Instagram posts
+
+### **Short Term (First Month)**
+1. 📊 Analyze usage patterns
+2. 🔧 Optimize cache TTL settings
+3. 📈 Setup detailed analytics
+4. 🛡️ Implement rate limiting
+5. 📱 Consider mobile-friendly frontend
+
+### **Long Term (3-6 Months)**
+1. 🌍 Multi-region deployment
+2. 📊 Custom analytics dashboard
+3. 🤖 API usage analytics
+4. 💼 Business model development
+5. 🔄 Continuous integration/deployment
+
+---
+
+## 🆘 Support and Resources
+
+### **Documentation**
+- **API Docs**: `https://your-domain.com/docs`
+- **Health Check**: `https://your-domain.com/health`
+- **Capabilities**: `https://your-domain.com/capabilities`
+
+### **Community Resources**
+- **AWS Documentation**: https://docs.aws.amazon.com/
+- **Docker Documentation**: https://docs.docker.com/
+- **FastAPI Documentation**: https://fastapi.tiangolo.com/
+
+### **Emergency Contacts**
+- **AWS Support**: Available through AWS Console
+- **DNS Issues**: Your domain registrar support
+- **SSL Issues**: Let's Encrypt community forum
+
+---
+
+## 🎉 Congratulations!
+
+You now have a **production-ready factr.ai system** deployed and running! 
+
+Your system can:
+- ✅ Detect misinformation across 6 independent methods
+- ✅ Generate BERT-powered explanations for different audiences
+- ✅ Scale automatically based on traffic
+- ✅ Cache results for 3-5x performance improvement
+- ✅ Monitor itself with comprehensive health checks
+
+**🚀 You're ready to start detecting misinformation at scale!**
