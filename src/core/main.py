@@ -1,239 +1,14 @@
-# Session 4 NEW: Dedicated explanation generation endpoint
-@app.post("/generate-explanation")
-async def generate_custom_explanation(
-    analysis_data: Dict[str, Any],
-    explanation_config: ExplanationRequest
-):
-    """
-    Session 4 NEW: Generate custom explanations for existing analysis results
-    Perfect for getting different audience-specific explanations!
-    """
-    try:
-        logger.info(f"Generating {explanation_config.audience} explanation")
-        
-        detailed_explanation = await bert_explanation_generator.generate_explanation(
-            analysis_data,
-            audience=explanation_config.audience,
-            include_evidence=explanation_config.include_evidence,
-            include_recommendations=explanation_config.include_recommendations
-        )
-        
-        return {
-            "explanation": detailed_explanation,
-            "config": explanation_config.dict(),
-            "timestamp": datetime.now()
-        }
-        
-    except Exception as e:
-        logger.error(f"Custom explanation generation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Explanation generation failed: {str(e)}")
+#!/usr/bin/env python3
+"""
+factr.ai - Advanced Multimodal Misinformation Detection System
+Session 4: BERT Explanations + AWS Deployment Ready
 
-# Session 4 NEW: Performance analytics endpoint
-@app.get("/analytics/performance")
-async def get_performance_analytics():
-    """
-    Session 4 NEW: Get system performance analytics
-    Monitor cache efficiency, processing times, and method effectiveness
-    """
-    try:
-        # Get cache statistics
-        cache_stats = {"status": "not_available"}
-        if cache_manager and cache_manager.redis_client:
-            try:
-                info = cache_manager.redis_client.info()
-                cache_stats = {
-                    "status": "available",
-                    "total_memory": info.get('used_memory_human', 'unknown'),
-                    "keyspace_hits": info.get('keyspace_hits', 0),
-                    "keyspace_misses": info.get('keyspace_misses', 0),
-                    "hit_rate": info.get('keyspace_hits', 0) / max(1, info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0))
-                }
-            except Exception as e:
-                cache_stats = {"status": "error", "error": str(e)}
-        
-        return {
-            "system_status": "operational",
-            "session": "Session 4 - BERT Explanations + AWS Deployment",
-            "cache_analytics": cache_stats,
-            "model_status": {
-                "clip_model": "loaded" if hasattr(ml_analyzer, 'clip_model') else "loading",
-                "bert_models": "loaded" if hasattr(bert_explanation_generator, 'fact_checker') else "loading",
-                "device": ml_analyzer.device if hasattr(ml_analyzer, 'device') else "unknown"
-            },
-            "performance_optimizations": {
-                "intelligent_caching": True,
-                "model_preloading": True,
-                "async_processing": True,
-                "redis_backend": cache_manager.redis_client is not None if cache_manager else False
-            },
-            "detection_capabilities": {
-                "total_methods": 6,
-                "explanation_audiences": 4,
-                "supported_languages": ["en"],  # Future expansion
-                "avg_processing_time": "15-30 seconds (uncached), 3-8 seconds (cached)"
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Performance analytics error: {e}")
-        return {"error": "Analytics temporarily unavailable", "status": "degraded"}
+AI-powered system for detecting misinformation across text, image, and metadata
+Powered by CLIP, BERT, and 6 independent verification methods
+"""
 
-# Session 4 NEW: Cache management endpoints
-@app.post("/admin/cache/clear")
-async def clear_cache(cache_type: str = "all"):
-    """
-    Session 4 NEW: Clear cache for maintenance
-    Use with caution - will impact performance temporarily
-    """
-    try:
-        if not cache_manager or not cache_manager.redis_client:
-            return {"error": "Cache not available", "cleared": False}
-        
-        if cache_type == "all":
-            cache_manager.redis_client.flushdb()
-            return {"message": "All cache cleared", "cleared": True}
-        else:
-            # Clear specific cache type
-            pattern = f"factr_ai:{cache_type}:*"
-            keys = cache_manager.redis_client.keys(pattern)
-            if keys:
-                cache_manager.redis_client.delete(*keys)
-            return {"message": f"Cleared {len(keys)} {cache_type} cache entries", "cleared": len(keys)}
-        
-    except Exception as e:
-        logger.error(f"Cache clear error: {e}")
-        raise HTTPException(status_code=500, detail=f"Cache clear failed: {str(e)}")
-
-@app.get("/admin/cache/stats")
-async def get_cache_stats():
-    """
-    Session 4 NEW: Get detailed cache statistics
-    Monitor what's being cached and cache efficiency
-    """
-    try:
-        if not cache_manager or not cache_manager.redis_client:
-            return {"error": "Cache not available"}
-        
-        # Get cache keys by type
-        cache_types = ["reverse_search", "metadata", "ml_analysis"]
-        stats = {}
-        
-        for cache_type in cache_types:
-            pattern = f"factr_ai:{cache_type}:*# Enhanced Data preprocessing pipeline with Session 4 capabilities
-class DataPreprocessor:
-    """
-    Handles preprocessing of multimodal data before ML analysis
-    Session 4 Enhancement: Now includes caching and performance optimization!
-    """
-    
-    def __init__(self, ml_analyzer: MultimodalAnalyzer, cache_manager: CacheManager):
-        self.ml_analyzer = ml_analyzer
-        self.reverse_search = ReverseImageSearchEngine()
-        self.metadata_analyzer = ImageMetadataAnalyzer()
-        self.cache_manager = cache_manager
-        self.setup_preprocessing()
-    
-    def setup_preprocessing(self):
-        """Initialize preprocessing tools"""
-        logger.info("Enhanced preprocessing pipeline initialized with ML models + reverse search + metadata analysis + caching")
-    
-    async def preprocess_post(
-        self, 
-        post: InstagramPost, 
-        include_reverse_search: bool = True, 
-        include_metadata: bool = True,
-        use_cache: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Preprocess Instagram post for comprehensive ML analysis
-        Session 4 Enhancement: Now includes intelligent caching!
-        
-        Args:
-            post: InstagramPost object
-            include_reverse_search: Whether to perform reverse image search
-            include_metadata: Whether to analyze image metadata
-            use_cache: Whether to use caching for performance
-            
-        Returns:
-            Dictionary with comprehensive analysis across all modalities
-        """
-        start_time = time.time()
-        cache_hits = {"reverse_search": False, "metadata": False, "ml_analysis": False}
-        
-        # Basic preprocessing (always fresh)
-        basic_preprocessing = {
-            "text": await self._preprocess_text(post.caption),
-            "image": await self._preprocess_image(post.image_url),
-            "metadata": await self._extract_metadata(post)
-        }
-        
-        # Session 4 NEW: Cached reverse image search analysis
-        reverse_search_results = None
-        if include_reverse_search:
-            cache_key = self.cache_manager.generate_cache_key("reverse_search", post.image_url)
-            
-            if use_cache:
-                reverse_search_results = await self.cache_manager.get_cached_result(cache_key)
-                cache_hits["reverse_search"] = reverse_search_results is not None
-            
-            if not reverse_search_results:
-                try:
-                    logger.info("Running reverse image search analysis...")
-                    reverse_search_results = await self.reverse_search.search_image(post.image_url)
-                    logger.info(f"Found {reverse_search_results['analysis']['total_matches']} matches across search engines")
-                    
-                    # Cache results for 1 hour (reverse search is expensive)
-                    if use_cache:
-                        await self.cache_manager.cache_result(cache_key, reverse_search_results, ttl=3600)
-                        
-                except Exception as e:
-                    logger.error(f"Reverse search failed: {e}")
-                    reverse_search_results = {"error": str(e)}
-        
-        # Session 4 NEW: Cached image metadata analysis
-        metadata_analysis = None
-        if include_metadata:
-            cache_key = self.cache_manager.generate_cache_key("metadata", post.image_url)
-            
-            if use_cache:
-                metadata_analysis = await self.cache_manager.get_cached_result(cache_key)
-                cache_hits["metadata"] = metadata_analysis is not None
-            
-            if not metadata_analysis:
-                try:
-                    logger.info("Analyzing image metadata...")
-                    metadata_analysis = await self.metadata_analyzer.analyze_image_metadata(post.image_url)
-                    logger.info("Metadata analysis complete")
-                    
-                    # Cache metadata for 24 hours (metadata doesn't change)
-                    if use_cache:
-                        await self.cache_manager.cache_result(cache_key, metadata_analysis, ttl=86400)
-                        
-                except Exception as e:
-                    logger.error(f"Metadata analysis failed: {e}")
-                    metadata_analysis = {"error": str(e)}
-        
-        # Session 4 NEW: Cached ML analysis
-        ml_analysis = None
-        cache_key = self.cache_manager.generate_cache_key("ml_analysis", post.image_url, post.caption)
-        
-        if use_cache:
-            ml_analysis = await self.cache_manager.get_cached_result(cache_key)
-            cache_hits["ml_analysis"] = ml_analysis is not None
-        
-        if not ml_analysis:
-            # Run CLIP-based ML analysis
-            ml_analysis = await self.ml_analyzer.analyze_cross_modal_consistency(
-                post.image_url, 
-                post.caption, 
-                basic_preprocessing["metadata"]
-            )
-            
-            # Cache ML analysis for 1 hour (balances performance vs freshness)
-            if use_cache:
-                await self.cache_manager.cache_result(cache_key, ml_analysis, ttl=3600)
-        
-        # Session 4 from fastapi import FastAPI, HTTPException, BackgroundTasks
+# Core imports
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, Dict, List, Any, Union
@@ -266,6 +41,13 @@ from functools import lru_cache
 import redis
 from contextlib import asynccontextmanager
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Download NLTK data safely
 try:
     _create_unverified_https_context = ssl._create_unverified_context
@@ -282,6 +64,53 @@ try:
     nltk.data.find('corpora/stopwords')
 except LookupError:
     nltk.download('stopwords')
+
+# Global variables for components (will be initialized during startup)
+cache_manager = None
+bert_explanation_generator = None
+ml_analyzer = None
+data_preprocessor = None
+instagram_scraper = None
+
+# Pydantic models
+class ExplanationRequest(BaseModel):
+    """Request model for explanation generation"""
+    audience: str = "general_public"  # general_public, journalists, researchers, content_moderators
+    include_evidence: bool = True
+    include_recommendations: bool = True
+    language: str = "en"  # Future: multi-language support
+
+class InstagramPostRequest(BaseModel):
+    """Enhanced request model for Instagram post analysis"""
+    post_url: HttpUrl
+    include_reverse_search: bool = True
+    include_metadata_analysis: bool = True
+    explanation_config: Optional[ExplanationRequest] = None
+    cache_results: bool = True  # Session 4 NEW
+
+class MisinformationAnalysis(BaseModel):
+    """Enhanced response model for misinformation analysis"""
+    misinformation_score: float  # 0-100 scale
+    confidence_level: str  # Low, Medium, High
+    detected_inconsistencies: List[str]
+    explanation: str
+    modality_scores: Dict[str, float]  # Individual scores for text, image, audio
+    metadata_info: Optional[Dict[str, Any]] = None
+    timestamp: datetime
+    # Session 4 NEW: Enhanced explanation
+    detailed_explanation: Optional[Dict[str, Any]] = None
+    processing_time: Optional[float] = None
+    cache_hit: Optional[bool] = None
+
+class InstagramPost(BaseModel):
+    """Model for Instagram post data"""
+    post_id: str
+    caption: str
+    image_url: str
+    username: str
+    timestamp: datetime
+    likes: Optional[int] = None
+    comments_count: Optional[int] = None
 
 # Session 4 NEW: Advanced caching and performance optimization
 class CacheManager:
@@ -717,62 +546,6 @@ class BERTExplanationGenerator:
             "recommendations": {"immediate_actions": ["Manual review recommended"]},
             "technical_details": {"status": "processing_error"}
         }
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="factr.ai - Multimodal Misinformation Detection",
-    description="AI-powered system for detecting misinformation across text, image, and audio",
-    version="Session 3 - Reverse Search + Metadata Analysis"
-)
-
-# Add CORS middleware for frontend integration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Session 4 NEW: Enhanced request/response models
-class ExplanationRequest(BaseModel):
-    """Request model for explanation generation"""
-    audience: str = "general_public"  # general_public, journalists, researchers, content_moderators
-    include_evidence: bool = True
-    include_recommendations: bool = True
-    language: str = "en"  # Future: multi-language support
-
-class InstagramPostRequest(BaseModel):
-    """Enhanced request model for Instagram post analysis"""
-    post_url: HttpUrl
-    include_reverse_search: bool = True
-    include_metadata_analysis: bool = True
-    explanation_config: Optional[ExplanationRequest] = None
-    cache_results: bool = True  # Session 4 NEW
-
-class MisinformationAnalysis(BaseModel):
-    """Enhanced response model for misinformation analysis"""
-    misinformation_score: float  # 0-100 scale
-    confidence_level: str  # Low, Medium, High
-    detected_inconsistencies: List[str]
-    explanation: str
-    modality_scores: Dict[str, float]  # Individual scores for text, image, audio
-    metadata_info: Optional[Dict[str, Any]] = None
-    timestamp: datetime
-    # Session 4 NEW: Enhanced explanation
-    detailed_explanation: Optional[Dict[str, Any]] = None
-    processing_time: Optional[float] = None
-    cache_hit: Optional[bool] = None
-
-class InstagramPost(BaseModel):
-    """Model for Instagram post data"""
-    post_id: str
-    caption: str
-    image_url: str
-    username: str
-    timestamp: datetime
-    likes: Optional[int] = None
-    comments_count: Optional[int] = None
 
 # New classes for Session 3
 class ReverseImageSearchEngine:
@@ -2270,4 +2043,350 @@ class DataPreprocessor:
             "cleaned_for_analysis": cleaned_for_analysis,
             "length": len(caption.split()),
             "hashtags": hashtags,
-            "mentions": mentions
+            "mentions": mentions,
+            "urls": urls
+        }
+    
+    async def _preprocess_image(self, image_url: str) -> Dict[str, Any]:
+        """Enhanced image preprocessing"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(image_url)
+                response.raise_for_status()
+                
+                # Basic image info
+                image = Image.open(io.BytesIO(response.content))
+                
+                return {
+                    "url": image_url,
+                    "status": "downloaded_successfully",
+                    "format": image.format,
+                    "size": image.size,
+                    "mode": image.mode,
+                    "file_size_bytes": len(response.content)
+                }
+                
+        except Exception as e:
+            logger.error(f"Error preprocessing image: {e}")
+            return {
+                "url": image_url,
+                "status": "download_failed",
+                "error": str(e)
+            }
+    
+    async def _extract_metadata(self, post: InstagramPost) -> Dict[str, Any]:
+        """Extract basic metadata from Instagram post"""
+        engagement_ratio = 0
+        if post.likes and post.comments_count and post.comments_count > 0:
+            engagement_ratio = post.likes / post.comments_count
+        
+        return {
+            "post_id": post.post_id,
+            "username": post.username,
+            "post_timestamp": post.timestamp,
+            "engagement": {
+                "likes": post.likes or 0,
+                "comments": post.comments_count or 0,
+                "engagement_ratio": engagement_ratio
+            },
+            "content_info": {
+                "has_caption": bool(post.caption.strip()),
+                "caption_length": len(post.caption),
+                "has_image": bool(post.image_url)
+            }
+        }
+
+# Startup function to initialize all components
+async def initialize_components():
+    """Initialize all global components during app startup"""
+    global cache_manager, bert_explanation_generator, ml_analyzer, data_preprocessor, instagram_scraper
+    
+    try:
+        logger.info("🚀 Initializing factr.ai components...")
+        
+        # Initialize cache manager first
+        cache_manager = CacheManager()
+        logger.info("✅ Cache manager initialized")
+        
+        # Initialize ML analyzer
+        ml_analyzer = MultimodalAnalyzer()
+        logger.info("✅ ML analyzer initialized")
+        
+        # Initialize BERT explanation generator
+        bert_explanation_generator = BERTExplanationGenerator()
+        logger.info("✅ BERT explanation generator initialized")
+        
+        # Initialize data preprocessor
+        data_preprocessor = DataPreprocessor(ml_analyzer, cache_manager)
+        logger.info("✅ Data preprocessor initialized")
+        
+        # Initialize Instagram scraper
+        instagram_scraper = InstagramScraper()
+        logger.info("✅ Instagram scraper initialized")
+        
+        logger.info("🎯 All factr.ai components ready!")
+        
+    except Exception as e:
+        logger.error(f"❌ Error initializing components: {e}")
+        raise
+
+# Application lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await initialize_components()
+    yield
+    # Shutdown
+    logger.info("🛑 Shutting down factr.ai...")
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="factr.ai - Multimodal Misinformation Detection",
+    description="AI-powered system for detecting misinformation across text, image, and metadata",
+    version="Session 4 - BERT Explanations + AWS Deployment",
+    lifespan=lifespan
+)
+
+# Add CORS middleware for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure this properly for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Check system health and component status"""
+    try:
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now(),
+            "components": {
+                "cache_manager": "ready" if cache_manager else "not_initialized",
+                "ml_models": "ready" if ml_analyzer else "not_initialized",
+                "bert_generator": "ready" if bert_explanation_generator else "not_initialized",
+                "data_preprocessor": "ready" if data_preprocessor else "not_initialized"
+            },
+            "capabilities": {
+                "multimodal_analysis": True,
+                "reverse_image_search": True,
+                "metadata_analysis": True,
+                "bert_explanations": True,
+                "intelligent_caching": True,
+                "6_detection_methods": True
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
+
+# MAIN ANALYSIS ENDPOINT - This was missing!
+@app.post("/analyze/instagram", response_model=MisinformationAnalysis)
+async def analyze_instagram_post(request: InstagramPostRequest):
+    """
+    Analyze Instagram post for misinformation using all 6 detection methods
+    
+    This is the main endpoint that the frontend calls!
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(f"Starting analysis for Instagram post: {request.post_url}")
+        
+        # Step 1: Scrape Instagram post data
+        post_data = await instagram_scraper.get_post_data(str(request.post_url))
+        logger.info(f"Successfully scraped post data for user: {post_data.username}")
+        
+        # Step 2: Run comprehensive preprocessing and analysis
+        analysis_results = await data_preprocessor.preprocess_post(
+            post_data,
+            include_reverse_search=request.include_reverse_search,
+            include_metadata=request.include_metadata_analysis,
+            use_cache=request.cache_results
+        )
+        
+        # Step 3: Generate detailed explanation if requested
+        detailed_explanation = None
+        if request.explanation_config:
+            detailed_explanation = await bert_explanation_generator.generate_explanation(
+                analysis_results,
+                audience=request.explanation_config.audience,
+                include_evidence=request.explanation_config.include_evidence,
+                include_recommendations=request.explanation_config.include_recommendations
+            )
+        
+        # Step 4: Format response
+        processing_time = time.time() - start_time
+        cache_hit = analysis_results["performance_metrics"]["cache_efficiency"] > 0.5
+        
+        # Extract modality scores for response
+        comprehensive = analysis_results["comprehensive_analysis"]
+        modality_scores = {}
+        for method_name, method_data in comprehensive["detection_methods"].items():
+            modality_scores[method_name] = method_data["score"]
+        
+        response = MisinformationAnalysis(
+            misinformation_score=comprehensive["combined_risk_score"],
+            confidence_level=comprehensive["confidence_level"],
+            detected_inconsistencies=comprehensive["primary_concerns"],
+            explanation=analysis_results["ml_analysis"]["explanation"],
+            modality_scores=modality_scores,
+            metadata_info=analysis_results["metadata"],
+            timestamp=datetime.now(),
+            detailed_explanation=detailed_explanation,
+            processing_time=processing_time,
+            cache_hit=cache_hit
+        )
+        
+        logger.info(f"Analysis completed in {processing_time:.2f}s - Risk: {comprehensive['combined_risk_score']:.1f}%")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error analyzing Instagram post: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+# Session 4 NEW: Dedicated explanation generation endpoint
+@app.post("/generate-explanation")
+async def generate_custom_explanation(
+    analysis_data: Dict[str, Any],
+    explanation_config: ExplanationRequest
+):
+    """
+    Session 4 NEW: Generate custom explanations for existing analysis results
+    Perfect for getting different audience-specific explanations!
+    """
+    try:
+        logger.info(f"Generating {explanation_config.audience} explanation")
+        
+        detailed_explanation = await bert_explanation_generator.generate_explanation(
+            analysis_data,
+            audience=explanation_config.audience,
+            include_evidence=explanation_config.include_evidence,
+            include_recommendations=explanation_config.include_recommendations
+        )
+        
+        return {
+            "explanation": detailed_explanation,
+            "config": explanation_config.dict(),
+            "timestamp": datetime.now()
+        }
+        
+    except Exception as e:
+        logger.error(f"Custom explanation generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Explanation generation failed: {str(e)}")
+
+# Session 4 NEW: Performance analytics endpoint
+@app.get("/analytics/performance")
+async def get_performance_analytics():
+    """
+    Session 4 NEW: Get system performance analytics
+    Monitor cache efficiency, processing times, and method effectiveness
+    """
+    try:
+        # Get cache statistics
+        cache_stats = {"status": "not_available"}
+        if cache_manager and cache_manager.redis_client:
+            try:
+                info = cache_manager.redis_client.info()
+                cache_stats = {
+                    "status": "available",
+                    "total_memory": info.get('used_memory_human', 'unknown'),
+                    "keyspace_hits": info.get('keyspace_hits', 0),
+                    "keyspace_misses": info.get('keyspace_misses', 0),
+                    "hit_rate": info.get('keyspace_hits', 0) / max(1, info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0))
+                }
+            except Exception as e:
+                cache_stats = {"status": "error", "error": str(e)}
+        
+        return {
+            "system_status": "operational",
+            "session": "Session 4 - BERT Explanations + AWS Deployment",
+            "cache_analytics": cache_stats,
+            "model_status": {
+                "clip_model": "loaded" if hasattr(ml_analyzer, 'clip_model') else "loading",
+                "bert_models": "loaded" if hasattr(bert_explanation_generator, 'fact_checker') else "loading",
+                "device": ml_analyzer.device if hasattr(ml_analyzer, 'device') else "unknown"
+            },
+            "performance_optimizations": {
+                "intelligent_caching": True,
+                "model_preloading": True,
+                "async_processing": True,
+                "redis_backend": cache_manager.redis_client is not None if cache_manager else False
+            },
+            "detection_capabilities": {
+                "total_methods": 6,
+                "explanation_audiences": 4,
+                "supported_languages": ["en"],  # Future expansion
+                "avg_processing_time": "15-30 seconds (uncached), 3-8 seconds (cached)"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Performance analytics error: {e}")
+        return {"error": "Analytics temporarily unavailable", "status": "degraded"}
+
+# Session 4 NEW: Cache management endpoints
+@app.post("/admin/cache/clear")
+async def clear_cache(cache_type: str = "all"):
+    """
+    Session 4 NEW: Clear cache for maintenance
+    Use with caution - will impact performance temporarily
+    """
+    try:
+        if not cache_manager or not cache_manager.redis_client:
+            return {"error": "Cache not available", "cleared": False}
+        
+        if cache_type == "all":
+            cache_manager.redis_client.flushdb()
+            return {"message": "All cache cleared", "cleared": True}
+        else:
+            # Clear specific cache type
+            pattern = f"factr_ai:{cache_type}:*"
+            keys = cache_manager.redis_client.keys(pattern)
+            if keys:
+                cache_manager.redis_client.delete(*keys)
+            return {"message": f"Cleared {len(keys)} {cache_type} cache entries", "cleared": len(keys)}
+        
+    except Exception as e:
+        logger.error(f"Cache clear error: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache clear failed: {str(e)}")
+
+@app.get("/admin/cache/stats")
+async def get_cache_stats():
+    """
+    Session 4 NEW: Get detailed cache statistics
+    Monitor what's being cached and cache efficiency
+    """
+    try:
+        if not cache_manager or not cache_manager.redis_client:
+            return {"error": "Cache not available"}
+        
+        # Get cache keys by type
+        cache_types = ["reverse_search", "metadata", "ml_analysis"]
+        stats = {}
+        
+        for cache_type in cache_types:
+            pattern = f"factr_ai:{cache_type}:*"
+            keys = cache_manager.redis_client.keys(pattern)
+            stats[cache_type] = {
+                "total_keys": len(keys),
+                "sample_keys": keys[:5] if keys else []
+            }
+        
+        return {
+            "cache_breakdown": stats,
+            "total_keys": sum(stats[ct]["total_keys"] for ct in cache_types),
+            "redis_info": cache_manager.redis_client.info()
+        }
+        
+    except Exception as e:
+        logger.error(f"Cache stats error: {e}")
+        raise HTTPException(status_code=500, detail=f"Cache stats failed: {str(e)}")
+
+# Run the application
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
