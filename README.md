@@ -4,3 +4,6 @@ factr is an AI-powered system designed to detect sophisticated misinformation by
 Current solutions are flawed. Human-powered systems like X's Community Notes are slow and inconsistent. Meanwhile, AI tools like McAfee's deepfake detector are too simplistic, often flagging content with any AI-generated component (e.g., AI audio over real video) as entirely fake.
 
 Our solution offers a more nuanced approach. Instead of just detecting AI generation, factr cross-references visual, audio, and textual information within a piece of content to identify logical contradictions and inconsistencies—the true hallmarks of misinformation.
+
+Ongoing Steps: Fine-tune the misinformation detection accuracy:
+There’s no way to hit 0% error with an LLM-based detection system, but the most effective setup is a tight RAG pipeline with verification and abstention: retrieve from a high-quality corpus with hybrid search, make the model quote sources directly (and refuse if not found), use constrained decoding and tools for math/code, then add a verification loop or cross-model check. Combine that with confidence thresholds so the system can abstain instead of hallucinate. This drives error rates very low, but the only true “zero” comes from returning exact source text, or prompting it to return uncertain cases to a human.
