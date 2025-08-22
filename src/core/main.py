@@ -270,7 +270,7 @@ class BERTExplanationGenerator:
             primary_concerns = analysis_results["comprehensive_analysis"]["primary_concerns"]
             
             # Determine risk level
-            if risk_score < 30:
+            if risk_score < 35:
                 risk_level = "low_risk"
             elif risk_score < 70:
                 risk_level = "medium_risk"
