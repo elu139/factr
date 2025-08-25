@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'factr.ai FREE TIER Deployment - $0 cost for 12 months'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Deployment environment
+  
+  KeyPairName:
+    Type: String
+    Default: ""
+    Description: EC2 Key Pair for SSH access (optional)
+
+Resources:
+  # Security Group for factr.ai application
+  FactrAISecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for factr.ai FREE TIER deployment
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+          Description: factr.ai API access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access (optional)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access for frontend
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-factr-ai-free-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Role for EC2 instance
+  FactrAIInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: FactrAIFreePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: 
+                  - !Sub '${ModelStorageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  FactrAIInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref FactrAIInstanceRole
+
+  # FREE TIER S3 Bucket (5GB free)
+  ModelStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${Environment}-factr-ai-free-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-factr-ai-free-models'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # FREE TIER EC2 Instance (t3.micro - 750 hours/month free)
+  FactrAIInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: t3.micro  # FREE TIER ELIGIBLE
+      IamInstanceProfile: !Ref FactrAIInstanceProfile
+      SecurityGroupIds:
+        - !Ref FactrAISecurityGroup
+      KeyName: !If 
+        - HasKeyPair
+        - !Ref KeyPairName
+        - !Ref AWS::NoValue
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker git htop
+          
+          # Start Docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install Docker Compose
+          curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Create application directory
+          mkdir -p /opt/factr-ai
+          cd /opt/factr-ai
+          
+          # Clone the repository (you'll need to update this URL)
+          git clone https://github.com/your-username/factr-ai.git .
+          
+          # Create FREE TIER optimized environment
+          cat > .env << EOF
+          # FREE TIER Configuration
+          REDIS_URL=redis://localhost:6379
+          AWS_DEFAULT_REGION=${AWS::Region}
+          S3_BUCKET_NAME=${ModelStorageBucket}
+          ENVIRONMENT=${Environment}
+          LOG_TO_FILE=true
+          LOG_LEVEL=INFO
+          
+          # Memory optimized for t3.micro (1GB RAM)
+          MODEL_CACHE_DIR=/app/models
+          CLIP_MODEL_NAME=ViT-B/32
+          BERT_MODEL_NAME=distilbert-base-uncased
+          
+          # Performance settings for small instance
+          MAX_WORKERS=1
+          WORKER_TIMEOUT=300
+          CACHE_MAX_MEMORY=128mb
+          EOF
+          
+          # Create FREE TIER Docker Compose
+          cat > docker-compose-free.yml << EOF
+          version: '3.8'
+          services:
+            # Redis for caching (in-memory, no persistence to save disk)
+            redis:
+              image: redis:7-alpine
+              ports:
+                - "6379:6379"
+              command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save ""
+              restart: unless-stopped
+          
+            # factr.ai application optimized for FREE TIER
+            factr-ai:
+              build: .
+              ports:
+                - "8000:8000"
+                - "80:8000"  # Also expose on port 80
+              environment:
+                - REDIS_URL=redis://redis:6379
+                - LOG_LEVEL=INFO
+                - ENVIRONMENT=${Environment}
+                - MODEL_CACHE_DIR=/app/models
+                - WORKER_TIMEOUT=300
+              volumes:
+                - ./models:/app/models
+                - ./logs:/app/logs
+              depends_on:
+                - redis
+              restart: unless-stopped
+              deploy:
+                resources:
+                  limits:
+                    memory: 800M  # Leave 200MB for system
+                  reservations:
+                    memory: 400M
+          EOF
+          
+          # Build and start services
+          docker-compose -f docker-compose-free.yml up -d
+          
+          # Install CloudWatch agent (FREE monitoring)
+          yum install -y amazon-cloudwatch-agent
+          
+          # Create a simple status page
+          mkdir -p /var/www/html
+          cat > /var/www/html/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>factr.ai - FREE TIER Deployment</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  .status { padding: 20px; border-radius: 5px; margin: 10px 0; }
+                  .success { background-color: #d4edda; color: #155724; }
+                  .info { background-color: #d1ecf1; color: #0c5460; }
+              </style>
+          </head>
+          <body>
+              <h1>🎯 factr.ai - FREE TIER Deployment</h1>
+              <div class="status success">
+                  ✅ Deployment Status: ACTIVE
+              </div>
+              <div class="status info">
+                  🆓 Cost: $0.00/month (AWS Free Tier)
+              </div>
+              <h2>🔗 API Endpoints:</h2>
+              <ul>
+                  <li><a href="/health">Health Check</a></li>
+                  <li><a href="/docs">API Documentation</a></li>
+                  <li><a href="/capabilities">Capabilities</a></li>
+                  <li><a href="/analytics/performance">Performance Analytics</a></li>
+              </ul>
+              <h2>📱 Test the API:</h2>
+              <p>Use the API documentation above to test Instagram post analysis.</p>
+              <h2>💡 FREE TIER Limitations:</h2>
+              <ul>
+                  <li>Single t3.micro instance (1 vCPU, 1GB RAM)</li>
+                  <li>No auto-scaling or load balancing</li>
+                  <li>Local Redis cache (limited memory)</li>
+                  <li>Processing may be slower than paid tiers</li>
+              </ul>
+          </body>
+          </html>
+          HTMLEOF
+          
+          # Start simple HTTP server for status page
+          cd /var/www/html
+          nohup python3 -m http.server 80 > /dev/null 2>&1 &
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-factr-ai-free-instance'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Elastic IP (FREE within limits)
+  FactrAIElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref FactrAIInstance
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-factr-ai-free-eip'
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, ""]]
+
+Outputs:
+  InstancePublicIP:
+    Description: Public IP address of the factr.ai instance
+    Value: !Ref FactrAIElasticIP
+    Export:
+      Name: !Sub '${Environment}-FactrAI-PublicIP'
+
+  InstancePublicDNS:
+    Description: Public DNS name of the factr.ai instance
+    Value: !GetAtt FactrAIInstance.PublicDnsName
+    Export:
+      Name: !Sub '${Environment}-FactrAI-PublicDNS'
+
+  APIEndpoint:
+    Description: factr.ai API endpoint (FREE TIER)
+    Value: !Sub 'http://${FactrAIElasticIP}:8000'
+    Export:
+      Name: !Sub '${Environment}-FactrAI-APIEndpoint'
+
+  StatusPageURL:
+    Description: Status page URL
+    Value: !Sub 'http://${FactrAIElasticIP}'
+    Export:
+      Name: !Sub '${Environment}-FactrAI-StatusPage'
+
+  S3BucketName:
+    Description: S3 bucket for model storage (FREE TIER)
+    Value: !Ref ModelStorageBucket
+    Export:
+      Name: !Sub '${Environment}-FactrAI-S3Bucket'
+
+  MonthlyCost:
+    Description: Monthly cost estimate
+    Value: "$0.00 (AWS Free Tier - first 12 months)"
+    Export:
+      Name: !Sub '${Environment}-FactrAI-Cost'

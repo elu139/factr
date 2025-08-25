@@ -1,0 +1,25 @@
+# Ultra-minimal requirements for free hosting
+# Total image size should be under 2GB
+
+# Core web framework (essential)
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# HTTP client (essential)
+httpx==0.25.2
+
+# Data validation (essential)  
+pydantic==2.5.0
+
+# Basic image processing (lightweight)
+Pillow==10.1.0
+
+# Text processing (lightweight)
+nltk==3.8.1
+
+# Utilities (lightweight)
+python-dateutil==2.8.2
+numpy==1.24.3
+
+# NO PyTorch - NO Transformers
+# We'll use basic NLP instead

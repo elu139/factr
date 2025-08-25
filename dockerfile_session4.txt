@@ -1,0 +1,65 @@
+# Session 4: Production-optimized Dockerfile with BERT and caching
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables for Session 4
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    MODEL_CACHE_DIR=/app/models \
+    PIP_NO_CACHE_DIR=1
+
+# Install system dependencies (Session 4 Enhanced)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    wget \
+    curl \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libmagic1 \
+    libexif-dev \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create directories for models and logs
+RUN mkdir -p /app/models /app/logs && \
+    chmod 755 /app/models /app/logs
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies with optimizations
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Session 4: Pre-download models for faster startup
+RUN python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')" && \
+    python -c "import clip; clip.load('ViT-B/32')" && \
+    python -c "from transformers import BertTokenizer; BertTokenizer.from_pretrained('bert-base-uncased')" && \
+    python -c "from transformers import pipeline; pipeline('text-classification', model='facebook/bart-large-mnli')"
+
+# Copy application code
+COPY . .
+
+# Create non-root user for security
+RUN adduser --disabled-password --gecos '' appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Session 4: Enhanced health check with longer startup time
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Session 4: Production startup with Gunicorn
+CMD ["gunicorn", "main:app", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120", "--access-logfile", "/app/logs/access.log", "--error-logfile", "/app/logs/error.log"]

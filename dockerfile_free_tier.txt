@@ -1,0 +1,57 @@
+# FREE TIER Optimized Dockerfile for t3.micro (1GB RAM)
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# FREE TIER optimizations
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    MODEL_CACHE_DIR=/app/models \
+    PIP_NO_CACHE_DIR=1 \
+    MALLOC_ARENA_MAX=2
+
+# Install minimal system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    wget \
+    curl \
+    git \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create directories
+RUN mkdir -p /app/models /app/logs && \
+    chmod 755 /app/models /app/logs
+
+# Copy requirements first (FREE TIER optimized)
+COPY requirements_free.txt requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Pre-download smaller models for FREE TIER
+RUN python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')" && \
+    python -c "from transformers import DistilBertTokenizer; DistilBertTokenizer.from_pretrained('distilbert-base-uncased')"
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN adduser --disabled-password --gecos '' appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# FREE TIER health check (longer intervals)
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# FREE TIER startup - single worker, longer timeout
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "300"]
