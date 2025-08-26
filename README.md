@@ -2,8 +2,6 @@
 
 https://factr-production.up.railway.app/
 
-![There should be something here](images/factr icon.png)
-
 factr is an AI-powered system designed to detect sophisticated misinformation by analyzing content across multiple modalities (text, audio, and video).
 
 Current solutions are flawed. Human-powered systems like X's Community Notes are slow and inconsistent. Meanwhile, AI tools like McAfee's deepfake detector are too simplistic, often flagging content with any AI-generated component (e.g., AI audio over real video) as entirely fake.
