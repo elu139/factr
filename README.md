@@ -1,6 +1,6 @@
 # factr
 
-https://factr-production.up.railway.app/
+~~ https://factr-production.up.railway.app/ ~~ Deployment is currently shut down, as we are migrating factr to a browser extension functionality.
 
 factr is an AI-powered system designed to detect sophisticated misinformation by analyzing content across multiple modalities (text, audio, and video).
 
