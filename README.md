@@ -17,3 +17,5 @@ Ongoing Steps:
 - Focusing primarily on fine-tuning current detection algorithm -- current website deployment had to sacrifice CLIP model features due to space and dependency constraints. New chapter prioritizes model accuracy over ability to deploy (will start locally and move on towards deployment, most likely via AWS Lambda).
 
 - Turn factr from a website into a chrome extension
+
+- Create idea UI/UX for Startup Launch
